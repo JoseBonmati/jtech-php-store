@@ -1,13 +1,18 @@
 <?php
 
-    require_once "../utilidades/conectar_db.php";
-    require_once "Usuario.php";
-    $con = conectar();
-    session_start();
+    // Session Management
+    if (session_status() === PHP_SESSION_NONE) {
+        session_start();
+    }
 
-    // Restringir acceso: solo administradores pueden ver esta página
+    require_once __DIR__ . "/../utils/Database.php";
+    require_once __DIR__ . "/../users/User.php"; 
+    
+    $db = Database::getConnection();
+
+    // Restrict access: only administrators can view this page
     if (!isset($_SESSION["rol"]) || $_SESSION["rol"] !== "administrador") {
-        header("Location: ../index.php?acceso=denegado");
+        header("Location: /index.php?unauthorized_access=1");
         exit;
     }
 
@@ -21,113 +26,115 @@
     <title>Consulta de usuarios</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
-    <link rel="stylesheet" href="../estilos.css">
-    <link rel="icon" type="image/x-icon" href="../assets/logos/jtech-favicon.ico"/>
+    <link rel="stylesheet" href="/assets/css/style.css">
+    <link rel="icon" type="image/x-icon" href="/assets/brand/jtech-favicon.ico"/>
 </head>
 <body>
     <div class="jtech-bg d-flex justify-content-center align-items-start py-5">
         <div class="jtech-card-wide p-4 w-100">
             <h2 class="text-center fw-bold mb-4">Gestión de Usuarios</h2>
 
-            <!-- Mensajes de éxito -->
+            <!-- Success messages -->
             <div class="mb-3">
                 <?php
-
-                    if (isset($_GET["nombreE"]) && isset($_GET["emailE"])) {
-                        $nombreE = htmlspecialchars($_GET["nombreE"]);
-                        $emailE = htmlspecialchars($_GET["emailE"]);
-                        echo "<p class='alert alert-success'>El usuario <b>$nombreE</b> con email <b>$emailE</b> ha sido modificado correctamente.</p>";
+                    if (isset($_GET["updated_name"]) && isset($_GET["updated_email"])) {
+                        $updatedName = htmlspecialchars($_GET["updated_name"]);
+                        $updatedEmail = htmlspecialchars($_GET["updated_email"]);
+                        echo "<p class='alert alert-success'>El usuario <b>$updatedName</b> con email <b>$updatedEmail</b> ha sido modificado correctamente.</p>";
                     }
-                    if (isset($_GET["nombreN"]) && isset($_GET["emailN"])) {
-                        $nombreN = htmlspecialchars($_GET["nombreN"]);
-                        $emailN = htmlspecialchars($_GET["emailN"]);
-                        echo "<p class='alert alert-success'>El usuario <b>$nombreN</b> con email <b>$emailN</b> se ha creado correctamente.</p>";
+                    if (isset($_GET["created_name"]) && isset($_GET["created_email"])) {
+                        $createdName = htmlspecialchars($_GET["created_name"]);
+                        $createdEmail = htmlspecialchars($_GET["created_email"]);
+                        echo "<p class='alert alert-success'>El usuario <b>$createdName</b> con email <b>$createdEmail</b> se ha creado correctamente.</p>";
                     }
-                    if (isset($_GET["nombreD"])) {
-                        $nombreD = htmlspecialchars($_GET["nombreD"]);
-                        echo "<p class='alert alert-success'>El usuario <b>$nombreD</b> se ha eliminado correctamente.</p>";
+                    if (isset($_GET["deleted_name"])) {
+                        $deletedName = htmlspecialchars($_GET["deleted_name"]);
+                        echo "<p class='alert alert-success'>El usuario <b>$deletedName</b> se ha eliminado correctamente.</p>";
                     }
-
                 ?>
             </div>
 
-            <!-- Barra de búsqueda -->
-            <form method="get" action="usuarioConsulta.php" class="mb-4 jtech-search mx-auto">
+            <form method="get" action="/users/user_list.php" class="mb-4 jtech-search mx-auto">
                 <div class="input-group">
-                    <input type="text" name="buscar" class="form-control" placeholder="Buscar por nombre o email..." autocomplete="off"
-                           value="<?= isset($_GET['buscar']) ? htmlspecialchars($_GET['buscar']) : '' ?>">
+                    <input type="text" name="search" class="form-control" placeholder="Buscar por nombre o email..." autocomplete="off"
+                           value="<?= isset($_GET['search']) ? htmlspecialchars($_GET['search']) : '' ?>">
                     <button class="btn btn-jtech fw-semibold" type="submit">Buscar</button>
                 </div>
             </form>
 
             <?php
 
-                // Configuración de paginación y ordenación
-                $pagina = isset($_GET["pagina"]) ? (int)$_GET["pagina"] : 1;
-                $resultadosPP = 5;
+                // Pagination and sorting configuration
+                $page = isset($_GET["page"]) ? (int)$_GET["page"] : 1;
+                $perPage = 5;
 
-                $columnasPermitidas = ["id", "nombre", "email", "telefono", "rol", "estado"];
-                $orden = isset($_GET["orden"]) ? $_GET["orden"] : "nombre";
-                if (!in_array($orden, $columnasPermitidas)) {
-                    $orden = "nombre";
+                // White-list mapping for sorting
+                $allowedColumns = [
+                    "id" => "id",
+                    "name" => "nombre",
+                    "email" => "email",
+                    "phone" => "telefono",
+                    "role" => "rol",
+                    "status" => "estado"
+                ];
+
+                $sortBy = isset($_GET["sort_by"]) ? $_GET["sort_by"] : "name";
+                $orderField = $allowedColumns[$sortBy] ?? "nombre";
+
+                $sortDir = isset($_GET["sort_dir"]) ? strtoupper($_GET["sort_dir"]) : "ASC";
+                if (!in_array($sortDir, ["ASC", "DESC"])) {
+                    $sortDir = "ASC";
                 }
 
-                $tipoOrden = isset($_GET["tipoOrden"]) ? strtoupper($_GET["tipoOrden"]) : "ASC";
-                if (!in_array($tipoOrden, ["ASC", "DESC"])) {
-                    $tipoOrden = "ASC";
-                }
+                // If search is active, apply filter + sort + pagination
+                if (isset($_GET["search"]) && trim($_GET["search"]) !== "") {
 
-                // Si hay búsqueda, aplicamos filtro + orden + paginación
-                if (isset($_GET["buscar"]) && trim($_GET["buscar"]) !== "") {
+                    $searchTerm = "%" . trim($_GET["search"]) . "%";
 
-                    $busqueda = "%" . trim($_GET["buscar"]) . "%";
+                    // Count filtered results
+                    $countQuery = $db->prepare("SELECT COUNT(*) AS total FROM usuarios WHERE nombre LIKE :search OR email LIKE :search");
+                    $countQuery->execute([":search" => $searchTerm]);
+                    $totalUsers = $countQuery->fetch(PDO::FETCH_ASSOC)["total"];
 
-                    // Contar resultados filtrados
-                    $countQuery = $con->prepare("SELECT COUNT(*) AS total FROM usuarios WHERE nombre LIKE :busqueda OR email LIKE :busqueda");
-                    $countQuery->execute([":busqueda" => $busqueda]);
-                    $usuariosTotal = $countQuery->fetch()["total"];
+                    $totalPages = ceil($totalUsers / $perPage);
+                    $offset = ($page - 1) * $perPage;
 
-                    $paginasTotal = ceil($usuariosTotal / $resultadosPP);
-                    $inicio = ($pagina - 1) * $resultadosPP;
+                    // SQL query updated with Aliases to properly hydrate the User class
+                    $query = $db->prepare("SELECT id, nombre AS name, email, contrasenya AS password, telefono AS phone, rol AS role, estado AS status 
+                                           FROM usuarios WHERE nombre LIKE :search OR email LIKE :search ORDER BY $orderField $sortDir LIMIT :offset, :limit");
 
-                    // Obtener resultados filtrados con paginación y ordenación
-                    $query = $con->prepare("SELECT id, nombre, email, contrasenya, telefono, rol, estado FROM usuarios
-                                            WHERE nombre LIKE :busqueda OR email LIKE :busqueda ORDER BY $orden $tipoOrden LIMIT :inicio, :resultados");
-
-                    $query->bindValue(":busqueda", $busqueda, PDO::PARAM_STR);
-                    $query->bindValue(":inicio", $inicio, PDO::PARAM_INT);
-                    $query->bindValue(":resultados", $resultadosPP, PDO::PARAM_INT);
+                    $query->bindValue(":search", $searchTerm, PDO::PARAM_STR);
+                    $query->bindValue(":offset", $offset, PDO::PARAM_INT);
+                    $query->bindValue(":limit", $perPage, PDO::PARAM_INT);
                     $query->execute();
 
-                    $query->setFetchMode(PDO::FETCH_CLASS, "Usuario");
-                    $usuarios = $query->fetchAll();
+                    $query->setFetchMode(PDO::FETCH_CLASS, "User");
+                    $users = $query->fetchAll();
 
                 } else {
 
-                    // Consultar categorías normalmente
-                    $usuarios = obtenerUsuarios($con, $pagina, $resultadosPP, $orden, $tipoOrden);
+                    // Fetch users normally
+                    $users = getUsers($db, $page, $perPage, $sortBy, $sortDir);
 
-                    $query = $con->prepare("SELECT count(*) AS total FROM usuarios");
-                    $query->execute();
-                    $fila = $query->fetch();
-                    $usuariosTotal = $fila["total"];
-
-                    $paginasTotal = ceil($usuariosTotal / $resultadosPP);
+                    $countQuery = $db->query("SELECT count(*) AS total FROM usuarios");
+                    $totalUsers = $countQuery->fetch(PDO::FETCH_ASSOC)["total"];
+                    $totalPages = ceil($totalUsers / $perPage);
                 }
 
-                // Iconos de ordenación
-                function iconoOrden($col, $orden, $tipoOrden) {
-                    if ($col !== $orden) return '<i class="bi bi-arrow-down-up"></i>';
-                    return $tipoOrden === "ASC"
+                // Sorting icons
+                function sortIcon(string $col, string $currentSortBy, string $currentSortDir): string {
+                    if ($col !== $currentSortBy) return '<i class="bi bi-arrow-down-up"></i>';
+                    return $currentSortDir === "ASC"
                         ? '<i class="bi bi-arrow-up"></i>'
                         : '<i class="bi bi-arrow-down"></i>';
                 }
 
-                function urlOrden($col, $tipoOrden) {
-                    $nuevoTipo = $tipoOrden === "ASC" ? "DESC" : "ASC";
-                    $url = "usuarioConsulta.php?orden=$col&tipoOrden=$nuevoTipo";
-                    if (isset($_GET["buscar"])) {
-                        $url .= "&buscar=" . urlencode($_GET["buscar"]);
+                // Sorting URL
+                function sortUrl(string $col, string $currentSortDir): string {
+                    $newDir = $currentSortDir === "ASC" ? "DESC" : "ASC";
+                    $url = "/users/user_list.php?sort_by=$col&sort_dir=$newDir";
+                    if (isset($_GET["search"])) {
+                        $url .= "&search=" . urlencode($_GET["search"]);
                     }
                     return $url;
                 }
@@ -138,12 +145,12 @@
                 <table class="jtech-table align-middle text-center mx-auto">
                     <thead>
                         <tr>
-                            <th><a href="<?= urlOrden('id', $tipoOrden) ?>">ID <?= iconoOrden('id', $orden, $tipoOrden) ?></a></th>
-                            <th><a href="<?= urlOrden('nombre', $tipoOrden) ?>">Nombre <?= iconoOrden('nombre', $orden, $tipoOrden) ?></a></th>
-                            <th><a href="<?= urlOrden('email', $tipoOrden) ?>">Email <?= iconoOrden('email', $orden, $tipoOrden) ?></a></th>
-                            <th><a href="<?= urlOrden('telefono', $tipoOrden) ?>">Teléfono <?= iconoOrden('telefono', $orden, $tipoOrden) ?></a></th>
-                            <th><a href="<?= urlOrden('rol', $tipoOrden) ?>">Rol <?= iconoOrden('rol', $orden, $tipoOrden) ?></a></th>
-                            <th><a href="<?= urlOrden('estado', $tipoOrden) ?>">Estado <?= iconoOrden('estado', $orden, $tipoOrden) ?></a></th>
+                            <th><a href="<?= sortUrl('id', $sortDir) ?>">ID <?= sortIcon('id', $sortBy, $sortDir) ?></a></th>
+                            <th><a href="<?= sortUrl('name', $sortDir) ?>">Nombre <?= sortIcon('name', $sortBy, $sortDir) ?></a></th>
+                            <th><a href="<?= sortUrl('email', $sortDir) ?>">Email <?= sortIcon('email', $sortBy, $sortDir) ?></a></th>
+                            <th><a href="<?= sortUrl('phone', $sortDir) ?>">Teléfono <?= sortIcon('phone', $sortBy, $sortDir) ?></a></th>
+                            <th><a href="<?= sortUrl('role', $sortDir) ?>">Rol <?= sortIcon('role', $sortBy, $sortDir) ?></a></th>
+                            <th><a href="<?= sortUrl('status', $sortDir) ?>">Estado <?= sortIcon('status', $sortBy, $sortDir) ?></a></th>
                             <th>Editar</th>
                             <th>Borrar</th>
                         </tr>
@@ -151,29 +158,30 @@
                     <tbody>
                         <?php
 
-                            if (empty($usuarios)) {
+                            if (empty($users)) {
                                 echo "<tr><td colspan='8' class='text-center py-3 text-muted'>
                                           No se encontraron usuarios
                                       </td></tr>";
                             } else {
-                                foreach ($usuarios as $usuario) {
+                                foreach ($users as $user) {
                                     echo "<tr>";
-                                    echo "<td>" . htmlspecialchars($usuario->getId()) . "</td>";
-                                    echo "<td>" . htmlspecialchars($usuario->getNombre()) . "</td>";
-                                    echo "<td>" . htmlspecialchars($usuario->getEmail()) . "</td>";
-                                    echo "<td>" . htmlspecialchars($usuario->getTelefono()) . "</td>";
-                                    echo "<td>" . htmlspecialchars($usuario->getRol()) . "</td>";
-                                    echo "<td>" . htmlspecialchars($usuario->getEstado()) . "</td>";
+                                    echo "<td>" . htmlspecialchars((string)$user->getId()) . "</td>";
+                                    echo "<td>" . htmlspecialchars((string)$user->getName()) . "</td>";
+                                    echo "<td>" . htmlspecialchars((string)$user->getEmail()) . "</td>";
+                                    echo "<td>" . htmlspecialchars((string)$user->getPhone()) . "</td>";
+                                    echo "<td>" . htmlspecialchars((string)$user->getRole()) . "</td>";
+                                    echo "<td>" . htmlspecialchars((string)$user->getStatus()) . "</td>";
 
-                                    if ($_SESSION["id"] == $usuario->getId()) {
+                                    if ($_SESSION["id"] == $user->getId()) {
                                         echo "<td><i class='bi bi-ban text-muted'></i></td>"; 
                                         echo "<td><i class='bi bi-ban text-muted'></i></td>";
                                     } else {
-                                        echo "<td><a class='text-jtech fw-bold' href='usuarioEditar.php?id=" . $usuario->getId() . "'>
+                                        // Absolute routes for edit and delete actions
+                                        echo "<td><a class='text-jtech fw-bold' href='/users/user_edit.php?id=" . $user->getId() . "'>
                                                 <i class='bi bi-pencil-square'></i>
                                             </a></td>";
 
-                                        echo "<td><a class='text-danger fw-bold' href='usuarioEliminar.php?id=" . $usuario->getId() . "'>
+                                        echo "<td><a class='text-danger fw-bold' href='/users/user_delete.php?id=" . $user->getId() . "'>
                                                 <i class='bi bi-trash-fill'></i>
                                             </a></td>";
                                     }
@@ -186,16 +194,16 @@
                 </table>
             </div>
 
-            <!-- Paginación -->
+            <!-- Pagination -->
             <div class="text-center mt-4">
                 <?php
 
-                    for ($i = 1; $i <= $paginasTotal; $i++) {
-                        $url = "usuarioConsulta.php?pagina=$i&orden=$orden&tipoOrden=$tipoOrden";
-                        if (isset($_GET["buscar"])) {
-                            $url .= "&buscar=" . urlencode($_GET["buscar"]);
+                    for ($i = 1; $i <= $totalPages; $i++) {
+                        $url = "/users/user_list.php?page=$i&sort_by=$sortBy&sort_dir=$sortDir";
+                        if (isset($_GET["search"])) {
+                            $url .= "&search=" . urlencode($_GET["search"]);
                         }
-                        if ($i == $pagina) {
+                        if ($i == $page) {
                             echo "<button class='btn btn-jtech mx-1'>$i</button>";
                         } else {
                             echo "<a href='$url' class='btn btn-outline-jtech mx-1'>$i</a>";
@@ -206,11 +214,11 @@
             </div>
 
             <div class="text-center mt-4 d-flex justify-content-center">
-                <a href="usuarioCrear.php" class="btn btn-jtech">Nuevo usuario</a>
+                <a href="/users/user_create.php" class="btn btn-jtech">Nuevo usuario</a>
             </div>
 
             <div class="text-center text-lg-start mt-3">
-                <a href="../utilidades/panelAdministrador.php" class="btn btn-outline-secondary">Volver</a>
+                <a href="/utils/admin_panel.php" class="btn btn-outline-secondary">Volver</a>
             </div>
 
         </div>

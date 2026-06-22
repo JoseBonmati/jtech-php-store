@@ -1,54 +1,63 @@
 <?php
 
-    require_once "../utilidades/conectar_db.php";
-    session_start();
+    // Session Management
+    if (session_status() === PHP_SESSION_NONE) {
+        session_start();
+    }
 
-    $con = conectar();
+    // Database Connection
+    require_once __DIR__ . "/../utils/Database.php";
+    $db = Database::getConnection();
 
-    if (isset($_POST["iniciarS"])) {
+    if (isset($_POST["login_submit"])) {
         $email = trim($_POST["email"] ?? "");
-        $contrasenya = trim($_POST["contrasenya"] ?? "");
+        $password = trim($_POST["password"] ?? "");
 
-        if ($email === "" || $contrasenya === "") {
-            header("Location: ../index.php?error=Los campos no pueden estar vacíos");
+        if ($email === "" || $password === "") {
+            header("Location: /index.php?error=" . urlencode("Los campos no pueden estar vacíos"));
             exit;
         }
 
-        $sql = $con->prepare("SELECT id, nombre, email, contrasenya, rol, estado FROM usuarios WHERE email = :email");
-        $sql->execute([":email" => $email]);
+        // Fetch user from DB
+        $stmt = $db->prepare("SELECT id, nombre, email, contrasenya, rol, estado FROM usuarios WHERE email = :email");
+        $stmt->execute([":email" => $email]);
 
-        if ($usuario = $sql->fetch()) {
-            if ($usuario["estado"] !== "activo") {
-                header("Location: ../index.php?error=Tu cuenta está inactiva, contacte con contacto@jtech.com.");
+        if ($user = $stmt->fetch(PDO::FETCH_ASSOC)) {
+            if ($user["estado"] !== "activo") {
+                header("Location: /index.php?error=" . urlencode("Tu cuenta está inactiva, contacte con contacto@jtech.com."));
                 exit;
             }
 
-            if (password_verify($contrasenya, $usuario["contrasenya"])) {
+            if (password_verify($password, $user["contrasenya"])) {
                 session_regenerate_id(true);
 
-                $_SESSION["id"] = $usuario["id"];
-                $_SESSION["email"] = $usuario["email"];
-                $_SESSION["rol"] = $usuario["rol"];
-                $_SESSION["nombre"] = $usuario["nombre"];
+                $_SESSION["id"] = $user["id"];
+                $_SESSION["email"] = $user["email"];
+                $_SESSION["rol"] = $user["rol"];
+                $_SESSION["nombre"] = $user["nombre"];
 
-                // Migrar carrito del token al usuario
-                $token = $_SESSION["carrito_token"];
-                $idUsuario = $usuario["id"];
+                $cartToken = $_SESSION["cart_token"] ?? null;
+                $userId = $user["id"];
 
-                $sql = $con->prepare("UPDATE carrito SET id_usuario = :idUsuario WHERE token = :token AND id_usuario IS NULL");
-                $sql->execute([
-                    ":idUsuario" => $idUsuario,
-                    ":token" => $token
-                ]);
+                if ($cartToken) {
+                    $updateCartStmt = $db->prepare("UPDATE carrito SET id_usuario = :idUsuario WHERE token = :token AND id_usuario IS NULL");
+                    $updateCartStmt->execute([
+                        ":idUsuario" => $userId,
+                        ":token" => $cartToken
+                    ]);
+                }
 
-
-                header("Location: ../index.php");
+                header("Location: /index.php");
                 exit;
             }
         }
 
-        header("Location: ../index.php?error=Credenciales incorrectas");
+        header("Location: /index.php?error=" . urlencode("Credenciales incorrectas"));
         exit;
     }
+
+    // Fallback redirect if accessed directly without POST data
+    header("Location: /index.php");
+    exit;
 
 ?>

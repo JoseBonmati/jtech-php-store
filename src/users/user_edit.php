@@ -1,24 +1,30 @@
 <?php
 
-    require_once "../utilidades/conectar_db.php";
-    $con = conectar();
-    session_start();
+    // Session Management
+    if (session_status() === PHP_SESSION_NONE) {
+        session_start();
+    }
 
-    // Solo usuarios logueados
+    // Database Connection
+    require_once __DIR__ . "/../utils/Database.php";
+    $db = Database::getConnection();
+
+    // Restrict access: only logged-in users allowed
     if (!isset($_SESSION["id"])) {
-        header("Location: ../index.php?acceso=denegado");
+        header("Location: /index.php?unauthorized_access=1");
         exit;
     }
 
-    $mensajesError = [];
+    $errorMessages = [];
 
-    $volverA = $_GET["from"] ?? $_POST["from"] ?? (isset($_GET["soloMios"]) ? "soloMios" : null);
+    // Determine where to return after editing
+    $returnTo = $_GET["from"] ?? $_POST["from"] ?? (isset($_GET["only_mine"]) ? "only_mine" : null);
 
-    $rol = $_SESSION["rol"];
+    $role = $_SESSION["rol"];
 
-    // Obtener ID del usuario a editar
-    if ($rol === "administrador") {
-        if (isset($_POST["enviar"]) || isset($_POST["cambiarRol"])) {
+    // Get ID of the user to edit
+    if ($role === "administrador") {
+        if (isset($_POST["edit_submit"]) || isset($_POST["change_role"])) {
             $id = (int) ($_POST["id"] ?? 0);
         } else {
             $id = (int) ($_GET["id"] ?? 0);
@@ -27,137 +33,138 @@
         $id = $_SESSION["id"];
     }
 
-    // Solo admin o el propio usuario
-    if ($rol !== "administrador" && $_SESSION["id"] !== $id) {
-        header("Location: ../index.php?acceso=denegado");
+    // Restrict access to admin or the user themselves
+    if ($role !== "administrador" && $_SESSION["id"] !== $id) {
+        header("Location: /index.php?unauthorized_access=1");
         exit;
     }
 
-    // Procesar formulario
-    if (isset($_POST["enviar"]) || isset($_POST["cambiarRol"])) {
-        $nombre = trim($_POST["nombre"] ?? "");
-        $telefono = trim($_POST["telefono"] ?? "");
+    // Process form submission
+    if (isset($_POST["edit_submit"]) || isset($_POST["change_role"])) {
+        $name = trim($_POST["name"] ?? "");
+        $phone = trim($_POST["phone"] ?? "");
         $email = trim($_POST["email"] ?? "");
-        $contrasenya = $_POST["contrasenya"] ?? "";
-        $direccion = trim($_POST["direccion"] ?? "");
-        $localidad = trim($_POST["localidad"] ?? "");
-        $provincia = trim($_POST["provincia"] ?? "");
+        $password = $_POST["password"] ?? "";
+        $address = trim($_POST["address"] ?? "");
+        $city = trim($_POST["city"] ?? "");
+        $province = trim($_POST["province"] ?? "");
 
-        // Validaciones
-        if ($nombre === "") {
-            $mensajesError[] = "El campo Nombre no puede estar vacío.";
+        // Validations
+        if ($name === "") {
+            $errorMessages[] = "El campo Nombre no puede estar vacío.";
         } 
 
-        if ($telefono === "" || !preg_match("/^[0-9]{9}$/", $telefono)) {
-            $mensajesError[] = "El teléfono debe tener exactamente 9 dígitos numéricos.";
+        if ($phone === "" || !preg_match("/^[0-9]{9}$/", $phone)) {
+            $errorMessages[] = "El teléfono debe tener exactamente 9 dígitos numéricos.";
         }
 
         if ($email === "" || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
-            $mensajesError[] = "Formato de email no válido.";
+            $errorMessages[] = "Formato de email no válido.";
         }
 
-        // Comprobar email duplicado
-        if (empty($mensajesError)) {
-            $check = $con->prepare("SELECT COUNT(*) FROM usuarios WHERE email = :email AND id != :id");
-            $check->execute([":email" => $email, ":id" => $id]);
+        // Check for duplicate email
+        if (empty($errorMessages)) {
+            $checkStmt = $db->prepare("SELECT COUNT(*) FROM usuarios WHERE email = :email AND id != :id");
+            $checkStmt->execute([":email" => $email, ":id" => $id]);
 
-            if ($check->fetchColumn() > 0) {
-                $mensajesError[] = "El email ya está registrado por otro usuario.";
+            if ($checkStmt->fetchColumn() > 0) {
+                $errorMessages[] = "El email ya está registrado por otro usuario.";
             }
         }
 
-        // Construir SQL dinámico
+        // Build dynamic SQL
         $sql = "UPDATE usuarios SET nombre = :nombre, telefono = :telefono, email = :email, direccion = :direccion, localidad = :localidad, provincia = :provincia";
 
         $params = [
-            ":nombre" => $nombre,
-            ":telefono" => $telefono,
+            ":nombre" => $name,
+            ":telefono" => $phone,
             ":email" => $email,
-            ":direccion" => $direccion,
-            ":localidad" => $localidad,
-            ":provincia" => $provincia,
+            ":direccion" => $address,
+            ":localidad" => $city,
+            ":provincia" => $province,
             ":id" => $id
         ];
 
-        // Actualizar contraseña si se ha introducido
-        if ($contrasenya !== "") {
-            if (strlen($contrasenya) < 8) {
-                $mensajesError[] = "La contraseña debe tener al menos 8 caracteres.";
+        // Update password if provided
+        if ($password !== "") {
+            if (strlen($password) < 8) {
+                $errorMessages[] = "La contraseña debe tener al menos 8 caracteres.";
             } else {
                 $sql .= ", contrasenya = :contrasenya";
-                $params[":contrasenya"] = password_hash($contrasenya, PASSWORD_DEFAULT);
+                $params[":contrasenya"] = password_hash($password, PASSWORD_DEFAULT);
             }
         }
 
-        // Cambiar rol (solo admin)
-        if ($rol === "administrador") {
-            if (isset($_POST["cambiarRol"])) {
-                $rol = $_POST["cambiarRol"];
+        // Change role (admin only)
+        if ($role === "administrador") {
+            if (isset($_POST["change_role"])) {
+                $selectedRole = $_POST["change_role"];
             } else {
-                $rolQuery = $con->prepare("SELECT rol FROM usuarios WHERE id = :id");
-                $rolQuery->execute([":id" => $id]);
-                $rol = $rolQuery->fetchColumn();
+                $roleQuery = $db->prepare("SELECT rol FROM usuarios WHERE id = :id");
+                $roleQuery->execute([":id" => $id]);
+                $selectedRole = $roleQuery->fetchColumn();
             }
             $sql .= ", rol = :rol";
-            $params[":rol"] = $rol;
+            $params[":rol"] = $selectedRole;
         }
 
         $sql .= " WHERE id = :id";
 
-        // Ejecutar actualización
-        if (empty($mensajesError)) {
-            $updateQuery = $con->prepare($sql);
+        // Execute update
+        if (empty($errorMessages)) {
+            $updateQuery = $db->prepare($sql);
             $updateQuery->execute($params);
 
+            // Update session data if user is editing their own profile
             if ($_SESSION["id"] == $id) {
-                $_SESSION["nombre"] = $nombre;
+                $_SESSION["nombre"] = $name;
                 $_SESSION["email"] = $email;
             }
 
             if ($updateQuery->rowCount() >= 0) {
 
-                // Si viene desde finalizar compra volver a finalizar compra
-                if ($volverA === "finalizar") {
-                    header("Location: ../compra/compraFinalizar.php?nombreE=" . urlencode($nombre) . "&emailE=" . urlencode($email));
+                // If coming from checkout, return to checkout
+                if ($returnTo === "finalizar") {
+                    header("Location: /checkout/checkout.php?updated_name=" . urlencode($name) . "&updated_email=" . urlencode($email));
                     exit;
 
-                // Si es admin editando sus propios datos volver al index
-                } elseif ($_SESSION["rol"] === "administrador" && $volverA === "soloMios") {
-                    header("Location: ../index.php?nombreE=" . urlencode($nombre) . "&emailE=" . urlencode($email));
+                // If admin editing their own data, return to index
+                } elseif ($_SESSION["rol"] === "administrador" && $returnTo === "only_mine") {
+                    header("Location: /index.php?updated_name=" . urlencode($name) . "&updated_email=" . urlencode($email));
                     exit;
     
-                // Si es admin editando a otro usuario volver a la consulta
+                // If admin editing another user, return to user list
                 } elseif ($_SESSION["rol"] === "administrador") {
-                    header("Location: usuarioConsulta.php?nombreE=" . urlencode($nombre) . "&emailE=" . urlencode($email));
+                    header("Location: /users/user_list.php?updated_name=" . urlencode($name) . "&updated_email=" . urlencode($email));
                     exit;
 
                 } else {
-                    // Usuarios normales vuelven al index
-                    header("Location: ../index.php?nombreE=" . urlencode($nombre) . "&emailE=" . urlencode($email));
+                    // Normal users return to index
+                    header("Location: /index.php?updated_name=" . urlencode($name) . "&updated_email=" . urlencode($email));
                     exit;
                 }
 
             } else {
-                $mensajesError[] = "No se ha podido actualizar el usuario.";
+                $errorMessages[] = "No se ha podido actualizar el usuario.";
             }
         }
     }
 
-    // Obtener datos del usuario
-    $query = $con->prepare("SELECT id, nombre, email, telefono, direccion, localidad, provincia, rol, estado FROM usuarios WHERE id = :id");
+    // Get user data for the form
+    $query = $db->prepare("SELECT id, nombre, email, telefono, direccion, localidad, provincia, rol, estado FROM usuarios WHERE id = :id");
     $query->execute([":id" => $id]);
 
-    if ($row = $query->fetch()) {
-        $nombreM = $row["nombre"];
-        $emailM = $row["email"];
-        $telefonoM = $row["telefono"];
-        $direccionM = $row["direccion"];
-        $localidadM = $row["localidad"];
-        $provinciaM = $row["provincia"];
-        $rolM = $row["rol"];
-        $estadoM = $row["estado"];
+    if ($row = $query->fetch(PDO::FETCH_ASSOC)) {
+        $fetchedName = $row["nombre"];
+        $fetchedEmail = $row["email"];
+        $fetchedPhone = $row["telefono"];
+        $fetchedAddress = $row["direccion"];
+        $fetchedCity = $row["localidad"];
+        $fetchedProvince = $row["provincia"];
+        $fetchedRole = $row["rol"];
+        $fetchedStatus = $row["estado"];
     } else {
-        $mensajesError[] = "No se ha encontrado el usuario.";
+        $errorMessages[] = "No se ha encontrado el usuario.";
     }
 
 ?>
@@ -170,8 +177,8 @@
     <title>Edición de usuarios</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
-    <link rel="stylesheet" href="../estilos.css">
-    <link rel="icon" type="image/x-icon" href="../assets/logos/jtech-favicon.ico"/>
+    <link rel="stylesheet" href="/assets/css/style.css">
+    <link rel="icon" type="image/x-icon" href="/assets/brand/jtech-favicon.ico"/>
 </head>
 <body>
     <div class="d-flex justify-content-center align-items-start jtech-bg">
@@ -180,54 +187,54 @@
 
             <div class="mb-3">
                 <?php
-                    if (isset($_GET["estadoCambiado"])) {
+                    if (isset($_GET["status_changed"])) {
                         echo "<p class='alert alert-success mb-0'>Estado del usuario cambiado.</p>";
                     }
-                    if (!empty($mensajesError)) {
-                        echo "<p class='alert alert-danger mb-0'>" . implode("<br>", $mensajesError) . "</p>";
+                    if (!empty($errorMessages)) {
+                        echo "<p class='alert alert-danger mb-0'>" . implode("<br>", $errorMessages) . "</p>";
                     }
                 ?>
             </div>
 
-            <form method="post" action="usuarioEditar.php">
-                <input type="hidden" name="id" value="<?= htmlspecialchars($id) ?>">
-                <input type="hidden" name="from" value="<?= htmlspecialchars($volverA) ?>">
+            <form method="post" action="/users/user_edit.php">
+                <input type="hidden" name="id" value="<?= htmlspecialchars((string)$id) ?>">
+                <input type="hidden" name="from" value="<?= htmlspecialchars((string)$returnTo) ?>">
 
                 <p class="mb-4 text-center fw-semibold">Modifica los datos del usuario y guarda los cambios.</p>
 
                 <div class="mb-3">
                     <label class="form-label fw-semibold">Correo electrónico</label>
-                    <input type="text" name="email" class="form-control jtech-input" maxlength="50" value="<?= htmlspecialchars($emailM) ?>">
+                    <input type="text" name="email" class="form-control jtech-input" maxlength="50" value="<?= htmlspecialchars($fetchedEmail ?? '') ?>">
                 </div>
 
                 <div class="mb-3">
                     <label class="form-label fw-semibold">Contraseña</label>
-                    <input type="password" name="contrasenya" class="form-control jtech-input" maxlength="30">
+                    <input type="password" name="password" class="form-control jtech-input" maxlength="30">
                 </div>
 
                 <div class="mb-3">
                     <label class="form-label fw-semibold">Nombre</label>
-                    <input type="text" name="nombre" class="form-control jtech-input" maxlength="50" value="<?= htmlspecialchars($nombreM) ?>">
+                    <input type="text" name="name" class="form-control jtech-input" maxlength="50" value="<?= htmlspecialchars($fetchedName ?? '') ?>">
                 </div>
 
                 <div class="mb-3">
                     <label class="form-label fw-semibold">Teléfono</label>
-                    <input type="text" name="telefono" class="form-control jtech-input" maxlength="9" value="<?= htmlspecialchars($telefonoM) ?>">
+                    <input type="text" name="phone" class="form-control jtech-input" maxlength="9" value="<?= htmlspecialchars($fetchedPhone ?? '') ?>">
                 </div>
 
                 <div class="mb-3">
                     <label class="form-label fw-semibold">Dirección</label>
-                    <input type="text" name="direccion" class="form-control jtech-input" maxlength="100" value="<?= htmlspecialchars($direccionM) ?>">
+                    <input type="text" name="address" class="form-control jtech-input" maxlength="100" value="<?= htmlspecialchars($fetchedAddress ?? '') ?>">
                 </div>
 
                 <div class="mb-3">
                     <label class="form-label fw-semibold">Localidad</label>
-                    <input type="text" name="localidad" class="form-control jtech-input" maxlength="50" value="<?= htmlspecialchars($localidadM) ?>">
+                    <input type="text" name="city" class="form-control jtech-input" maxlength="50" value="<?= htmlspecialchars($fetchedCity ?? '') ?>">
                 </div>
 
                 <div class="mb-4">
                     <label class="form-label fw-semibold">Provincia</label>
-                    <input type="text" name="provincia" class="form-control jtech-input" maxlength="50" value="<?= htmlspecialchars($provinciaM) ?>">
+                    <input type="text" name="province" class="form-control jtech-input" maxlength="50" value="<?= htmlspecialchars($fetchedProvince ?? '') ?>">
                 </div>
 
                 <?php if ($_SESSION["rol"] === "administrador" && $_SESSION["id"] != $id): ?>
@@ -236,35 +243,35 @@
                     <div class="mb-3">
                         <label class="form-label fw-semibold">Rol</label><br>
 
-                        <?php if ($rolM === "usuario"): ?>
-                            <button type="submit" name="cambiarRol" value="empleado" class="btn btn-outline-primary fw-semibold"
+                        <?php if (isset($fetchedRole) && $fetchedRole === "usuario"): ?>
+                            <button type="submit" name="change_role" value="empleado" class="btn btn-outline-primary fw-semibold"
                                 onclick="return confirm('¿Convertir este usuario en empleado?');">
                                 Convertir en Empleado
                             </button>
 
-                            <button type="submit" name="cambiarRol" value="administrador" class="btn btn-outline-danger fw-semibold"
+                            <button type="submit" name="change_role" value="administrador" class="btn btn-outline-danger fw-semibold"
                                 onclick="return confirm('¿Convertir este usuario en administrador?');">
                                 Convertir en Administrador
                             </button>
 
-                        <?php elseif ($rolM === "empleado"): ?>
-                            <button type="submit" name="cambiarRol" value="usuario" class="btn btn-outline-secondary fw-semibold"
+                        <?php elseif (isset($fetchedRole) && $fetchedRole === "empleado"): ?>
+                            <button type="submit" name="change_role" value="usuario" class="btn btn-outline-secondary fw-semibold"
                                 onclick="return confirm('¿Convertir este empleado en usuario?');">
                                 Convertir en Usuario
                             </button>
 
-                            <button type="submit" name="cambiarRol" value="administrador" class="btn btn-outline-danger fw-semibold"
+                            <button type="submit" name="change_role" value="administrador" class="btn btn-outline-danger fw-semibold"
                                 onclick="return confirm('¿Convertir este empleado en administrador?');">
                                 Convertir en Administrador
                             </button>
 
-                        <?php elseif ($rolM === "administrador"): ?>
-                            <button type="submit" name="cambiarRol" value="usuario" class="btn btn-outline-secondary fw-semibold"
+                        <?php elseif (isset($fetchedRole) && $fetchedRole === "administrador"): ?>
+                            <button type="submit" name="change_role" value="usuario" class="btn btn-outline-secondary fw-semibold"
                                 onclick="return confirm('¿Quitar permisos de administrador y convertir en usuario?');">
                                 Convertir en Usuario
                             </button>
 
-                            <button type="submit" name="cambiarRol" value="empleado" class="btn btn-outline-primary fw-semibold"
+                            <button type="submit" name="change_role" value="empleado" class="btn btn-outline-primary fw-semibold"
                                 onclick="return confirm('¿Quitar permisos de administrador y convertir en empleado?');">
                                 Convertir en Empleado
                             </button>
@@ -272,40 +279,37 @@
                     </div>
 
                     <div class="mb-3">
-                        <?php if ($estadoM === "activo"): ?>
-                            <a href="usuarioDesactivar.php?id=<?= $id ?>&accion=desactivar" class="btn btn-outline-warning fw-semibold"
+                        <?php if (isset($fetchedStatus) && $fetchedStatus === "activo"): ?>
+                            <a href="/users/user_deactivate.php?id=<?= $id ?>&action=deactivate" class="btn btn-outline-warning fw-semibold"
                             onclick="return confirm('¿Seguro que quieres desactivar este usuario?');">Desactivar usuario</a>
                         <?php else: ?>
-                            <a href="usuarioDesactivar.php?id=<?= $id ?>&accion=activar" class="btn btn-outline-success fw-semibold"
+                            <a href="/users/user_deactivate.php?id=<?= $id ?>&action=activate" class="btn btn-outline-success fw-semibold"
                             onclick="return confirm('¿Seguro que quieres activar este usuario?');">Activar usuario</a>
                         <?php endif; ?>
                     </div>
                 <?php endif; ?>
 
                 <div class="d-grid gap-3 mt-4">
-                    <button type="submit" name="enviar" class="btn btn-jtech fw-semibold">Guardar cambios</button>
+                    <button type="submit" name="edit_submit" class="btn btn-jtech fw-semibold">Guardar cambios</button>
                     <hr class="jtech-divider">
 
                     <?php
 
-                        // Si viene desde finalizar compra, vuelve a ella
-                        if ($volverA === "finalizar") {
-                            $volver = "../compra/compraFinalizar.php";
+                        // Return routing logic
+                        if ($returnTo === "finalizar") {
+                            $returnUrl = "/checkout/checkout.php";
 
-                        // Si es usuario normal siempre vuelve al index
-                        } elseif ($rol === "usuario" || $rol === "empleado") {
-                            $volver = "../index.php";
+                        } elseif ($role === "usuario" || $role === "empleado") {
+                            $returnUrl = "/index.php";
 
-                        // Si es admin y está editando su usuario, volver al index
-                        } elseif (isset($_GET["soloMios"]) && $_GET["soloMios"] == 1) {
-                            $volver = "../index.php";
+                        } elseif (isset($_GET["only_mine"]) && $_GET["only_mine"] == 1) {
+                            $returnUrl = "/index.php";
 
-                        // Si es admin editando otro usuario volver a la consulta
                         } else {
-                            $volver = "usuarioConsulta.php";
+                            $returnUrl = "/users/user_list.php";
                         }
                     ?>
-                    <a href="<?= $volver ?>" class="btn btn-outline-secondary">Volver</a>
+                    <a href="<?= $returnUrl ?>" class="btn btn-outline-secondary">Volver</a>
                     
                 </div>
             </form>

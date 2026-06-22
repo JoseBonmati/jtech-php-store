@@ -1,51 +1,48 @@
-    <aside class="aside-izquierdo">
+    <aside class="sidebar-left">
 
         <?php
-
-            // Obtener categorías activas
-            $catQuery = $con->prepare("SELECT id, nombre FROM categorias WHERE estado = 'activo' ORDER BY nombre ASC");
-            $catQuery->execute();
-            $categorias = $catQuery->fetchAll(PDO::FETCH_ASSOC);
-
+            // Fetch active categories
+            $categoryStmt = $db->prepare("SELECT id, nombre FROM categorias WHERE estado = 'activo' ORDER BY nombre ASC");
+            $categoryStmt->execute();
+            $categories = $categoryStmt->fetchAll(PDO::FETCH_ASSOC);
         ?>
 
-        <div class="accordion accordion-flush" id="accordionCategorias">
+        <div class="accordion accordion-flush" id="categoriesAccordion">
 
-            <?php foreach ($categorias as $cat): ?>
+            <?php foreach ($categories as $category): ?>
                 <?php
-                    // Obtener subcategorías activas de esta categoría
-                    $subQuery = $con->prepare("SELECT id, nombre FROM subcategorias  WHERE id_categoria = :id AND estado = 'activo' ORDER BY nombre ASC");
-                    $subQuery->execute([":id" => $cat["id"]]);
-                    $subcategorias = $subQuery->fetchAll(PDO::FETCH_ASSOC);
+                    // Fetch active subcategories for this category
+                    $subCategoryStmt = $db->prepare("SELECT id, nombre FROM subcategorias WHERE id_categoria = :id AND estado = 'activo' ORDER BY nombre ASC");
+                    $subCategoryStmt->execute([":id" => $category["id"]]);
+                    $subcategories = $subCategoryStmt->fetchAll(PDO::FETCH_ASSOC);
 
-                    // IDs únicos para el acordeón
-                    $headingId = "heading-" . $cat["id"];
-                    $collapseId = "collapse-" . $cat["id"];
+                    // Unique IDs for the accordion
+                    $headingId = "heading-" . $category["id"];
+                    $collapseId = "collapse-" . $category["id"];
                 ?>
 
                 <div class="accordion-item">
                     <h2 class="accordion-header" id="<?= $headingId ?>">
                         <button class="accordion-button collapsed fw-semibold" type="button" data-bs-toggle="collapse" data-bs-target="#<?= $collapseId ?>" 
-                        aria-expanded="false" aria-controls="<?= $collapseId ?>"><?= htmlspecialchars($cat["nombre"]) ?>
+                        aria-expanded="false" aria-controls="<?= $collapseId ?>"><?= htmlspecialchars($category["nombre"]) ?>
                         </button>
                     </h2>
 
-                    <div id="<?= $collapseId ?>" class="accordion-collapse collapse" aria-labelledby="<?= $headingId ?>" data-bs-parent="#accordionCategorias">
+                    <div id="<?= $collapseId ?>" class="accordion-collapse collapse" aria-labelledby="<?= $headingId ?>" data-bs-parent="#categoriesAccordion">
                         <div class="accordion-body p-0">
-                            <?php if (count($subcategorias) > 0): ?>
+                            <?php if (count($subcategories) > 0): ?>
                                 <ul class="list-group list-group-flush">
-                                <!-- Ver todo -->
-                                <li class="list-group-item jtech-subitem jtech-clickable" onclick="window.location='index.php?categoria=<?= $cat['id'] ?>'">
-                                    <a href="index.php?categoria=<?= $cat['id'] ?>" class="text-decoration-none text-dark fw-semibold d-block">
+                                
+                                <li class="list-group-item jtech-subitem jtech-clickable" onclick="window.location='/index.php?category=<?= $category['id'] ?>'">
+                                    <a href="/index.php?category=<?= $category['id'] ?>" class="text-decoration-none text-dark fw-semibold d-block">
                                         Ver todo
                                     </a>
                                 </li>
 
-                                <!-- Subcategorías -->
-                                <?php foreach ($subcategorias as $sub): ?>
-                                    <li class="list-group-item jtech-subitem jtech-clickable" onclick="window.location='index.php?subcategoria=<?= $sub['id'] ?>'">
-                                        <a href="index.php?subcategoria=<?= $sub['id'] ?>" class="text-decoration-none text-dark d-block">
-                                            <?= htmlspecialchars($sub["nombre"]) ?>
+                                <?php foreach ($subcategories as $subcategory): ?>
+                                    <li class="list-group-item jtech-subitem jtech-clickable" onclick="window.location='/index.php?subcategory=<?= $subcategory['id'] ?>'">
+                                        <a href="/index.php?subcategory=<?= $subcategory['id'] ?>" class="text-decoration-none text-dark d-block">
+                                            <?= htmlspecialchars($subcategory["nombre"]) ?>
                                         </a>
                                     </li>
                                 <?php endforeach; ?>

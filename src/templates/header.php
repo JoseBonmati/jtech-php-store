@@ -1,33 +1,34 @@
 <?php
 
-// Session Management
-// Ensure session is started only once to prevent notices
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
+    // Session Management
+    // Ensure session is started only once to prevent notices
+    if (session_status() === PHP_SESSION_NONE) {
+        session_start();
+    }
 
-// Initialize Cart Token if the user is a guest
-if (!isset($_SESSION["cart_token"])) {
-    $_SESSION["cart_token"] = bin2hex(random_bytes(16));
-}
+    // Initialize Cart Token if the user is a guest
+    if (!isset($_SESSION["cart_token"])) {
+        $_SESSION["cart_token"] = bin2hex(random_bytes(16));
+    }
 
-$cartToken = $_SESSION["cart_token"] ?? null;
-$userId = $_SESSION["id"] ?? null;
+    $cartToken = $_SESSION["cart_token"] ?? null;
+    $userId = $_SESSION["id"] ?? null;
 
-// Database Connection
-require_once __DIR__ . "/../utils/Database.php";
-$db = Database::getConnection();
+    // Database Connection
+    require_once __DIR__ . "/../utils/Database.php";
+    $db = Database::getConnection();
 
-// Fetch Global Data (Cart Total)
-if ($userId) {
-    $stmt = $db->prepare("SELECT SUM(cantidad) AS total FROM carrito WHERE id_usuario = :id");
-    $stmt->execute([":id" => $userId]);
-} else {
-    $stmt = $db->prepare("SELECT SUM(cantidad) AS total FROM carrito WHERE token = :token");
-    $stmt->execute([":token" => $cartToken]);
-}
+    // Fetch Global Data (Cart Total)
+    if ($userId) {
+        $stmt = $db->prepare("SELECT SUM(cantidad) AS total FROM carrito WHERE id_usuario = :id");
+        $stmt->execute([":id" => $userId]);
+    } else {
+        $stmt = $db->prepare("SELECT SUM(cantidad) AS total FROM carrito WHERE token = :token");
+        $stmt->execute([":token" => $cartToken]);
+    }
 
-$cartTotal = $stmt->fetchColumn() ?: 0;
+    $cartTotal = $stmt->fetchColumn() ?: 0;
+
 ?>
 
 <!DOCTYPE html>
@@ -50,11 +51,11 @@ $cartTotal = $stmt->fetchColumn() ?: 0;
                 <img src="/assets/brand/logo-pequenyo.png" alt="Logo Jtech" style="max-height: 60px;">
             </a>
 
-            <button class="navbar-toggler me-3" type="button" data-bs-toggle="collapse" data-bs-target="#navPrincipal" aria-controls="navPrincipal" aria-expanded="false" aria-label="Abrir menú">
+            <button class="navbar-toggler me-3" type="button" data-bs-toggle="collapse" data-bs-target="#mainNav" aria-controls="mainNav" aria-expanded="false" aria-label="Abrir menú">
                 <span class="navbar-toggler-icon"></span>
             </button>
 
-            <div id="navPrincipal" class="collapse navbar-collapse">
+            <div id="mainNav" class="collapse navbar-collapse">
                 <ul class="navbar-nav ms-auto align-items-center fs-5 fw-semibold gap-lg-4">
                     <li class="nav-item">
                         <a class="nav-link" href="/index.php">Inicio</a>
@@ -66,7 +67,7 @@ $cartTotal = $stmt->fetchColumn() ?: 0;
                         <a class="nav-link" href="#">Contacto</a>
                     </li>
                     <li class="nav-item me-lg-3">
-                        <a href="/cart/cart.php" class="nav-link">
+                        <a href="/cart/cart_list.php" class="nav-link">
                             <i class="bi bi-cart fs-3"></i> (<?= htmlspecialchars((string)$cartTotal) ?>)
                         </a>
                     </li>

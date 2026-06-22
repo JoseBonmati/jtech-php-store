@@ -1,90 +1,95 @@
 <?php
 
-    require_once "../utilidades/conectar_db.php";
-    $con = conectar();
-    session_start();
+    // Session Management
+    if (session_status() === PHP_SESSION_NONE) {
+        session_start();
+    }
 
-    $mensajesError = [];
+    // Database Connection
+    require_once __DIR__ . "/../utils/Database.php";
+    $db = Database::getConnection();
 
-    if (isset($_POST["enviar"])) {
+    $errorMessages = [];
+
+    if (isset($_POST["register_submit"])) {
         $email = trim($_POST["email"] ?? "");
-        $contrasenya = trim($_POST["contrasenya"] ?? "");
-        $nombre = trim($_POST["nombre"] ?? "");
-        $telefono = trim($_POST["telefono"] ?? "");
+        $password = trim($_POST["password"] ?? "");
+        $name = trim($_POST["name"] ?? "");
+        $phone = trim($_POST["phone"] ?? "");
 
-        // Validación de email
+        // Email validation
         if ($email === "") {
-            $mensajesError[] = "El campo Email no puede estar vacío.";
+            $errorMessages[] = "El campo Email no puede estar vacío.";
         } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-            $mensajesError[] = "Formato de email no válido.";
+            $errorMessages[] = "Formato de email no válido.";
         }
 
-        // Validación de contraseña
-        if ($contrasenya === "") {
-            $mensajesError[] = "El campo Contraseña no puede estar vacío.";
-        } elseif (strlen($contrasenya) < 8) {
-            $mensajesError[] = "La contraseña debe tener al menos 8 caracteres.";
+        // Password validation
+        if ($password === "") {
+            $errorMessages[] = "El campo Contraseña no puede estar vacío.";
+        } elseif (strlen($password) < 8) {
+            $errorMessages[] = "La contraseña debe tener al menos 8 caracteres.";
         }
 
-        // Validación de nombre
-        if ($nombre === "") {
-            $mensajesError[] = "El campo Nombre no puede estar vacío.";
+        // Name validation
+        if ($name === "") {
+            $errorMessages[] = "El campo Nombre no puede estar vacío.";
         }
 
-        // Validación de teléfono
-        if ($telefono === "") {
-            $mensajesError[] = "El campo Teléfono no puede estar vacío.";
-        } elseif (!preg_match("/^[0-9]{9}$/", $telefono)) {
-            $mensajesError[] = "El teléfono debe tener exactamente 9 dígitos numéricos.";
+        // Phone validation
+        if ($phone === "") {
+            $errorMessages[] = "El campo Teléfono no puede estar vacío.";
+        } elseif (!preg_match("/^[0-9]{9}$/", $phone)) {
+            $errorMessages[] = "El teléfono debe tener exactamente 9 dígitos numéricos.";
         }
 
-        // Comprobar email duplicado
-        if (empty($mensajesError)) {
-            $check = $con->prepare("SELECT COUNT(*) FROM usuarios WHERE email = :email");
-            $check->execute([":email" => $email]);
+        // Check for duplicate email
+        if (empty($errorMessages)) {
+            $checkStmt = $db->prepare("SELECT COUNT(*) FROM usuarios WHERE email = :email");
+            $checkStmt->execute([":email" => $email]);
 
-            if ($check->fetchColumn() > 0) {
-                $mensajesError[] = "El email ya está registrado, use otro.";
+            if ($checkStmt->fetchColumn() > 0) {
+                $errorMessages[] = "El email ya está registrado, use otro.";
             }
         }
 
-        // Insertar usuario
-        if (empty($mensajesError)) {
-            $stmt = $con->prepare("INSERT INTO usuarios (nombre, email, contrasenya, telefono, rol, estado)
-                                   VALUES (:nombre, :email, :contrasenya, :telefono, 'usuario', 'activo')
-            ");
+        // Insert new user
+        if (empty($errorMessages)) {
+            $stmt = $db->prepare("INSERT INTO usuarios (nombre, email, contrasenya, telefono, rol, estado)
+                                   VALUES (:nombre, :email, :contrasenya, :telefono, 'usuario', 'activo')");
 
             $stmt->execute([
-                ":nombre" => $nombre,
+                ":nombre" => $name,
                 ":email" => $email,
-                ":contrasenya" => password_hash($contrasenya, PASSWORD_DEFAULT),
-                ":telefono" => $telefono
+                ":contrasenya" => password_hash($password, PASSWORD_DEFAULT),
+                ":telefono" => $phone
             ]);
 
             if ($stmt->rowCount() > 0) {
                 if (isset($_SESSION["rol"]) && $_SESSION["rol"] === "administrador") {
-                    header("Location: usuarioConsulta.php?nombreN=" . urlencode($nombre) . "&emailN=" . urlencode($email));
+                    header("Location: /users/user_list.php?created_name=" . urlencode($name) . "&created_email=" . urlencode($email));
                     exit;
                 }
 
-                // Si es un usuario normal que se está registrando se inicia sesión automáticamente
-                $idNuevoUsuario = $con->lastInsertId();
+                // Auto login for regular user registration
+                $newUserId = $db->lastInsertId();
 
-                $_SESSION["id"] = $idNuevoUsuario;
+                $_SESSION["id"] = $newUserId;
                 $_SESSION["email"] = $email;
                 $_SESSION["rol"] = "usuario";
-                $_SESSION["nombre"] = $nombre;
+                $_SESSION["nombre"] = $name;
 
-                // Migrar carrito del invitado al nuevo usuario
-                $token = $_SESSION["carrito_token"];
+                $cartToken = $_SESSION["cart_token"] ?? null;
 
-                $sql = $con->prepare("UPDATE carrito SET id_usuario = :idUsuario WHERE token = :token AND id_usuario IS NULL");
-                $sql->execute([
-                    ":idUsuario" => $idNuevoUsuario,
-                    ":token" => $token
-                ]);
+                if ($cartToken) {
+                    $updateCartStmt = $db->prepare("UPDATE carrito SET id_usuario = :idUsuario WHERE token = :token AND id_usuario IS NULL");
+                    $updateCartStmt->execute([
+                        ":idUsuario" => $newUserId,
+                        ":token" => $cartToken
+                    ]);
+                }
 
-                header("Location: ../index.php?nombreN=" . urlencode($nombre) . "&emailN=" . urlencode($email));
+                header("Location: /index.php?created_name=" . urlencode($name) . "&created_email=" . urlencode($email));
                 exit;
             }
         }
@@ -100,24 +105,24 @@
     <title>Crear usuario</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
-    <link rel="stylesheet" href="../estilos.css">
-    <link rel="icon" type="image/x-icon" href="../assets/logos/jtech-favicon.ico"/>
+    <link rel="stylesheet" href="/assets/css/style.css">
+    <link rel="icon" type="image/x-icon" href="/assets/brand/jtech-favicon.ico"/>
 </head>
 <body>
     <div class="d-flex justify-content-center align-items-center jtech-bg">
         <div class="p-4 jtech-card">
             <h2 class="text-center mb-4 fw-bold">Crear usuario</h2>
 
-            <!-- Errores del servidor -->
+            <!-- Server errors -->
             <div class="mb-3">
                 <?php
-                    if (!empty($mensajesError)) {
-                        echo "<p class='alert alert-danger mb-0'>" . implode("<br>", $mensajesError) . "</p>";
+                    if (!empty($errorMessages)) {
+                        echo "<p class='alert alert-danger mb-0'>" . implode("<br>", $errorMessages) . "</p>";
                     }
                 ?>
             </div>
 
-            <form method="post" action="usuarioCrear.php">
+            <form method="post" action="/users/user_create.php">
                 <p class="mb-3 text-center fw-semibold">Rellena los siguientes datos para crear tu cuenta.</p>
 
                 <div class="mb-3">
@@ -127,23 +132,23 @@
 
                 <div class="mb-3">
                     <label class="form-label">Contraseña</label>
-                    <input type="password" name="contrasenya" class="form-control jtech-input" maxlength="255">
+                    <input type="password" name="password" class="form-control jtech-input" maxlength="255">
                 </div>
 
                 <div class="mb-3">
                     <label class="form-label">Nombre</label>
-                    <input type="text" name="nombre" class="form-control jtech-input" maxlength="50" value="<?= isset($_POST['nombre']) ? htmlspecialchars($_POST['nombre']) : '' ?>">
+                    <input type="text" name="name" class="form-control jtech-input" maxlength="50" value="<?= isset($_POST['name']) ? htmlspecialchars($_POST['name']) : '' ?>">
                 </div>
 
                 <div class="mb-3">
                     <label class="form-label">Teléfono</label>
-                    <input type="text" name="telefono" class="form-control jtech-input" maxlength="9" value="<?= isset($_POST['telefono']) ? htmlspecialchars($_POST['telefono']) : '' ?>">
+                    <input type="text" name="phone" class="form-control jtech-input" maxlength="9" value="<?= isset($_POST['phone']) ? htmlspecialchars($_POST['phone']) : '' ?>">
                 </div>
 
                 <div class="d-grid gap-3 mt-4">
-                    <button type="submit" name="enviar" class="btn btn-jtech fw-semibold">Crear usuario</button>
+                    <button type="submit" name="register_submit" class="btn btn-jtech fw-semibold">Crear usuario</button>
                     <hr class="jtech-divider">
-                    <a href="<?= (isset($_SESSION['rol']) && $_SESSION['rol'] === 'administrador') ? 'usuarioConsulta.php' : '../index.php' ?>" 
+                    <a href="<?= (isset($_SESSION['rol']) && $_SESSION['rol'] === 'administrador') ? '/users/user_list.php' : '/index.php' ?>" 
                     class="btn btn-outline-secondary">Volver</a>
                 </div>
             </form>

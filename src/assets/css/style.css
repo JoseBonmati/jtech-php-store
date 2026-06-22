@@ -265,7 +265,7 @@ footer a:hover {
     min-height: calc(100vh - 200px);
 }
 
-.aside-izquierdo {
+.sidebar-left {
     width: 260px;
     overflow-y: auto;
     background: linear-gradient(to bottom, #FFFFFF, #F0F0F0); 
@@ -277,7 +277,7 @@ footer a:hover {
     padding: 30px;
 }
 
-.aside-derecho {
+.sidebar-right {
     width: 260px;
     padding: 20px;
     display: flex;
@@ -287,11 +287,11 @@ footer a:hover {
     box-shadow: -2px 0 5px rgba(26, 115, 232, 0.5);
 }
 
-.aside-derecho .aside-content {
+.sidebar-right .aside-content {
     width: 100%;
 }
 
-.jtech-nombre-producto {
+.jtech-product-name {
     min-height: 3.2em;
     line-height: 1.6em;
     overflow: hidden;
@@ -312,13 +312,13 @@ footer a:hover {
     min-height: calc(100vh - 200px);
 }
 
-.jtech-card-producto {
+.jtech-product-card {
     position: relative;
     border-radius: 10px;
     transition: transform .2s, box-shadow .2s;
 }
 
-.jtech-card-producto:hover {
+.jtech-product-card:hover {
     transform: translateY(-5px);
     box-shadow: 0 6px 15px rgba(26, 115, 232, 0.4);
 }
@@ -428,12 +428,12 @@ footer a:hover {
         min-height: auto;
     }
 
-    .aside-izquierdo, .aside-derecho {
+    .sidebar-left, .sidebar-right {
         width: 100%;
         box-shadow: none;
     }
 
-    .aside-izquierdo {
+    .sidebar-left {
         order: 1;
     }
 
@@ -442,7 +442,7 @@ footer a:hover {
         padding: 20px 15px; 
     }
 
-    .aside-derecho {
+    .sidebar-right {
         order: 3;
         padding: 20px 15px;
     }

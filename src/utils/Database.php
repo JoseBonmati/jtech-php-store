@@ -5,34 +5,40 @@ class Database {
     // Holds the single PDO instance
     private static ?PDO $connection = null;
 
-    //Retrieves the database connection. If it doesn't exist, it reads the .env file and creates it
+    // Retrieves the database connection prioritizing system env vars, then fallback to .env file
     public static function getConnection(): PDO {
         // If the connection already exists, return it immediately
         if (self::$connection !== null) {
             return self::$connection;
         }
 
-        // Resolve .env path (going up two directories from src/utils)
-        $envPath = __DIR__ . '/../../.env';
-        
-        if (!file_exists($envPath)) {
-            die("Critical Error: Configuration .env file is missing.");
+        // Try to read from system environment variables
+        $host = getenv('DB_HOST');
+        $dbName = getenv('DB_NAME');
+        $user = getenv('DB_USER');
+        $pass = getenv('DB_PASS');
+
+        // If system vars are empty, read the .env file manually
+        if (!$host || !$dbName || !$user) {
+            $envPath = __DIR__ . '/../../.env';
+            
+            if (file_exists($envPath)) {
+                $envVars = parse_ini_file($envPath);
+                
+                if ($envVars) {
+                    $host = $envVars['DB_HOST'] ?? '';
+                    $dbName = $envVars['DB_NAME'] ?? '';
+                    $user = $envVars['DB_USER'] ?? '';
+                    $pass = $envVars['DB_PASS'] ?? '';
+                } else {
+                    die("Critical Error: Failed to parse .env file.");
+                }
+            } else {
+                die("Critical Error: Database configuration missing (No ENV vars and no .env file found).");
+            }
         }
 
-        // Parse environment variables
-        $envVars = parse_ini_file($envPath);
-        
-        if (!$envVars) {
-            die("Critical Error: Failed to parse .env file.");
-        }
-
-        // Extract credentials
-        $host = $envVars['DB_HOST'];
-        $dbName = $envVars['DB_NAME'];
-        $user = $envVars['DB_USER'];
-        $pass = $envVars['DB_PASS'];
         $charset = "utf8mb4";
-
         $dsn = "mysql:host={$host};dbname={$dbName};charset={$charset}";
 
         // Establish connection

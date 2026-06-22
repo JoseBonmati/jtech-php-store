@@ -1,19 +1,26 @@
 <?php
 
-    require_once "../utilidades/conectar_db.php";
-    $con = conectar();
-    session_start();
+    // Session Management
+    if (session_status() === PHP_SESSION_NONE) {
+        session_start();
+    }
 
+    // Database Connection
+    require_once __DIR__ . "/../utils/Database.php";
+    $db = Database::getConnection();
+
+    // Restrict access: only administrators or employees can view this page
     if (!isset($_SESSION["id"]) || ($_SESSION["rol"] !== "administrador" && $_SESSION["rol"] !== "empleado")) {
-        header("Location: ../index.php?acceso=denegado");
+        header("Location: /index.php?unauthorized_access=1");
         exit;
     }
 
     $sessionId = $_SESSION["id"];
 
-    $query = $con->prepare("SELECT nombre FROM usuarios WHERE id = :id");
+    // Fetch the name of the logged-in user
+    $query = $db->prepare("SELECT nombre FROM usuarios WHERE id = :id");
     $query->execute([":id" => $sessionId]);
-    $admin = $query->fetch();
+    $admin = $query->fetch(PDO::FETCH_ASSOC);
     $adminName = $admin ? $admin["nombre"] : "Usuario";
 
 ?>
@@ -25,8 +32,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
-    <link rel="stylesheet" href="../estilos.css">
-    <link rel="icon" type="image/x-icon" href="../assets/logos/jtech-favicon.ico"/>
+    <link rel="stylesheet" href="/assets/css/style.css">
+    <link rel="icon" type="image/x-icon" href="/assets/brand/jtech-favicon.ico"/>
     <title>Panel Administración Jtech</title>
 </head>
 <body>
@@ -37,20 +44,20 @@
             <div class="d-grid gap-3">
 
                 <?php if ($_SESSION["rol"] === "administrador"): ?>
-                    <a href="../usuarios/usuarioConsulta.php" class="btn fw-semibold btn-jtech">Gestión de Usuarios</a>
+                    <a href="/users/user_list.php" class="btn fw-semibold btn-jtech">Gestión de Usuarios</a>
                 <?php endif; ?>
 
-                <a href="../productos/productoConsulta.php" class="btn fw-semibold btn-jtech">Gestión de Productos</a>
-                <a href="../categorias/categoriaConsulta.php" class="btn fw-semibold btn-jtech">Gestión de Categorías</a>
-                <a href="../pedidos/pedidoConsulta.php" class="btn fw-semibold btn-jtech">Gestión de Pedidos</a>
+                <a href="/products/product_list.php" class="btn fw-semibold btn-jtech">Gestión de Productos</a>
+                <a href="/categories/category_list.php" class="btn fw-semibold btn-jtech">Gestión de Categorías</a>
+                <a href="/orders/order_list.php" class="btn fw-semibold btn-jtech">Gestión de Pedidos</a>
 
                 <?php if ($_SESSION["rol"] === "administrador"): ?>
-                    <a href="../informes/informes.php" class="btn fw-semibold btn-success">Ver informes</a>
+                    <a href="/reports/reports.php" class="btn fw-semibold btn-success">Ver informes</a>
                 <?php endif; ?>
 
                 <hr class="jtech-divider">
 
-                <a href="../index.php" class="btn btn-outline-secondary">Volver</a>
+                <a href="/index.php" class="btn btn-outline-secondary">Volver</a>
             </div>
         </div>
     </div>

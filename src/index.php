@@ -1,111 +1,108 @@
 <?php
 
-// Ensure Database connection ($db) is properly initialized in header.php
-include_once "templates/header.php";
+    // Ensure Database connection ($db) is properly initialized in header.php
+    include_once "templates/header.php";
 
-// Returns the Bootstrap icon HTML based on the current price sorting
-function getPriceSortIcon(string $currentSort): string {
-    if ($currentSort === "ASC") {
-        return '<i class="bi bi-arrow-up"></i>';
+    // Returns the Bootstrap icon HTML based on the current price sorting
+    function getPriceSortIcon(string $currentSort): string {
+        if ($currentSort === "ASC") {
+            return '<i class="bi bi-arrow-up"></i>';
+        }
+        if ($currentSort === "DESC") {
+            return '<i class="bi bi-arrow-down"></i>';
+        }
+        return '<i class="bi bi-arrow-down-up"></i>';
     }
-    if ($currentSort === "DESC") {
-        return '<i class="bi bi-arrow-down"></i>';
-    }
-    return '<i class="bi bi-arrow-down-up"></i>';
-}
 
-//Builds the URL for the price sorting button, maintaining existing search filters
-function getPriceSortUrl(string $currentSort): string {
-    $newSort = ($currentSort === "ASC") ? "DESC" : "ASC";
-    $url = "index.php?sort_price=$newSort";
+    //Builds the URL for the price sorting button, maintaining existing search filters
+    function getPriceSortUrl(string $currentSort): string {
+        $newSort = ($currentSort === "ASC") ? "DESC" : "ASC";
+        $url = "index.php?sort_price=$newSort";
 
-    if (isset($_GET["search"])) {
-        $url .= "&search=" . urlencode($_GET["search"]);
+        if (isset($_GET["search"])) {
+            $url .= "&search=" . urlencode($_GET["search"]);
+        }
+        if (isset($_GET["min_price"])) {
+            $url .= "&min_price=" . urlencode($_GET["min_price"]);
+        }
+        if (isset($_GET["max_price"])) {
+            $url .= "&max_price=" . urlencode($_GET["max_price"]);
+        }
+        if (isset($_GET["category"])) {
+            $url .= "&category=" . (int)$_GET["category"];
+        }
+        if (isset($_GET["subcategory"])) {
+            $url .= "&subcategory=" . (int)$_GET["subcategory"];
+        }
+
+        return $url;
     }
-    if (isset($_GET["min_price"])) {
-        $url .= "&min_price=" . urlencode($_GET["min_price"]);
-    }
-    if (isset($_GET["max_price"])) {
-        $url .= "&max_price=" . urlencode($_GET["max_price"]);
-    }
+
+    // Main logic & Query building
+    $whereClause = "WHERE estado = 'activo'";
+
+    // Category Filter
     if (isset($_GET["category"])) {
-        $url .= "&category=" . (int)$_GET["category"];
+        $categoryId = (int)$_GET["category"];
+        $whereClause .= " AND id_categoria = $categoryId";
     }
+
+    // Subcategory Filter
     if (isset($_GET["subcategory"])) {
-        $url .= "&subcategory=" . (int)$_GET["subcategory"];
+        $subcategoryId = (int)$_GET["subcategory"];
+        $whereClause .= " AND id_subcategoria = $subcategoryId";
     }
 
-    return $url;
-}
+    // Search Filter
+    if (isset($_GET["search"]) && trim($_GET["search"]) !== "") {
+        $searchTerm = "%" . trim($_GET["search"]) . "%";
+        $whereClause .= " AND nombre LIKE " . $db->quote($searchTerm);
+    }
 
-// Main logic & Query building
-$whereClause = "WHERE estado = 'activo'";
+    // Price Filters
+    if (isset($_GET["min_price"]) && is_numeric($_GET["min_price"])) {
+        $minPrice = (float)$_GET["min_price"];
+        $whereClause .= " AND precio >= $minPrice";
+    }
+    if (isset($_GET["max_price"]) && is_numeric($_GET["max_price"])) {
+        $maxPrice = (float)$_GET["max_price"];
+        $whereClause .= " AND precio <= $maxPrice";
+    }
 
-// Category Filter
-if (isset($_GET["category"])) {
-    $categoryId = (int)$_GET["category"];
-    $whereClause .= " AND id_categoria = $categoryId";
-}
+    // Order Logic
+    $orderClause = " ORDER BY nombre ASC";
+    if (isset($_GET["sort_price"]) && in_array($_GET["sort_price"], ["ASC", "DESC"])) {
+        $orderClause = " ORDER BY precio " . $_GET["sort_price"];
+    }
 
-// Subcategory Filter
-if (isset($_GET["subcategory"])) {
-    $subcategoryId = (int)$_GET["subcategory"];
-    $whereClause .= " AND id_subcategoria = $subcategoryId";
-}
+    // Pagination Logic
+    $currentPage = isset($_GET["page"]) ? (int)$_GET["page"] : 1;
+    if ($currentPage < 1) $currentPage = 1;
 
-// Search Filter
-if (isset($_GET["search"]) && trim($_GET["search"]) !== "") {
-    $searchTerm = "%" . trim($_GET["search"]) . "%";
-    // Change: Using $db instead of the old $con variable
-    $whereClause .= " AND nombre LIKE " . $db->quote($searchTerm);
-}
+    $resultsPerPage = 8;
+    $offset = ($currentPage - 1) * $resultsPerPage;
 
-// Price Filters
-if (isset($_GET["min_price"]) && is_numeric($_GET["min_price"])) {
-    $minPrice = (float)$_GET["min_price"];
-    $whereClause .= " AND precio >= $minPrice";
-}
-if (isset($_GET["max_price"]) && is_numeric($_GET["max_price"])) {
-    $maxPrice = (float)$_GET["max_price"];
-    $whereClause .= " AND precio <= $maxPrice";
-}
+    // Fetch Products
+    $sql = "SELECT id, nombre, precio, imagen, descripcion FROM productos $whereClause $orderClause LIMIT :offset, :limit";
+    $stmt = $db->prepare($sql);
+    $stmt->bindValue(":offset", $offset, PDO::PARAM_INT);
+    $stmt->bindValue(":limit", $resultsPerPage, PDO::PARAM_INT);
+    $stmt->execute();
+    $products = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-// Order Logic
-$orderClause = " ORDER BY nombre ASC";
-if (isset($_GET["sort_price"]) && in_array($_GET["sort_price"], ["ASC", "DESC"])) {
-    $orderClause = " ORDER BY precio " . $_GET["sort_price"];
-}
+    // Fetch Total Products for Pagination
+    $totalStmt = $db->query("SELECT COUNT(*) FROM productos $whereClause");
+    $totalProducts = $totalStmt->fetchColumn();
+    $totalPages = ceil($totalProducts / $resultsPerPage);
 
-// Pagination Logic
-$currentPage = isset($_GET["page"]) ? (int)$_GET["page"] : 1;
-if ($currentPage < 1) $currentPage = 1;
-
-$resultsPerPage = 8;
-$offset = ($currentPage - 1) * $resultsPerPage;
-
-// Fetch Products
-// Change: Using $db instead of the old $con variable
-$sql = "SELECT id, nombre, precio, imagen, descripcion FROM productos $whereClause $orderClause LIMIT :offset, :limit";
-$stmt = $db->prepare($sql);
-$stmt->bindValue(":offset", $offset, PDO::PARAM_INT);
-$stmt->bindValue(":limit", $resultsPerPage, PDO::PARAM_INT);
-$stmt->execute();
-$products = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-// Fetch Total Products for Pagination
-// Change: Using $db instead of the old $con variable
-$totalStmt = $db->query("SELECT COUNT(*) FROM productos $whereClause");
-$totalProducts = $totalStmt->fetchColumn();
-$totalPages = ceil($totalProducts / $resultsPerPage);
-
-// Build Extra Params for Pagination Links
-$extraParams = ""; 
-if (isset($_GET["category"])) $extraParams .= "&category=" . (int)$_GET["category"]; 
-if (isset($_GET["subcategory"])) $extraParams .= "&subcategory=" . (int)$_GET["subcategory"]; 
-if (isset($_GET["search"])) $extraParams .= "&search=" . urlencode($_GET["search"]);
-if (isset($_GET["min_price"])) $extraParams .= "&min_price=" . urlencode($_GET["min_price"]);
-if (isset($_GET["max_price"])) $extraParams .= "&max_price=" . urlencode($_GET["max_price"]);
-if (isset($_GET["sort_price"])) $extraParams .= "&sort_price=" . urlencode($_GET["sort_price"]);
+    // Build Extra Params for Pagination Links
+    $extraParams = ""; 
+    if (isset($_GET["category"])) $extraParams .= "&category=" . (int)$_GET["category"]; 
+    if (isset($_GET["subcategory"])) $extraParams .= "&subcategory=" . (int)$_GET["subcategory"]; 
+    if (isset($_GET["search"])) $extraParams .= "&search=" . urlencode($_GET["search"]);
+    if (isset($_GET["min_price"])) $extraParams .= "&min_price=" . urlencode($_GET["min_price"]);
+    if (isset($_GET["max_price"])) $extraParams .= "&max_price=" . urlencode($_GET["max_price"]);
+    if (isset($_GET["sort_price"])) $extraParams .= "&sort_price=" . urlencode($_GET["sort_price"]);
 
 ?>
 
@@ -177,7 +174,7 @@ if (isset($_GET["sort_price"])) $extraParams .= "&sort_price=" . urlencode($_GET
 
             <?php foreach ($products as $product): ?>
                 <div class="col-12 col-sm-6 col-md-4 col-lg-4 col-xl-3">
-                    <div class="card h-100 shadow-sm jtech-card-producto">
+                    <div class="card h-100 shadow-sm jtech-product-card">
                         <div class="position-absolute top-0 end-0 m-2" data-bs-toggle="tooltip" data-bs-placement="left" title="<?= htmlspecialchars($product['descripcion']) ?>">
                             <i class="bi bi-info-circle text-muted"></i>
                         </div>
@@ -185,7 +182,7 @@ if (isset($_GET["sort_price"])) $extraParams .= "&sort_price=" . urlencode($_GET
                         <img src="<?= htmlspecialchars($product['imagen']) ?>" class="card-img-top mt-3" style="height:180px; object-fit:contain; background-color:#fff;" alt="<?= htmlspecialchars($product['nombre']) ?>">
                         
                         <div class="card-body text-center d-flex flex-column justify-content-between">
-                            <h5 class="card-title fw-semibold jtech-nombre-producto"><?= htmlspecialchars($product['nombre']) ?></h5>
+                            <h5 class="card-title fw-semibold jtech-product-name"><?= htmlspecialchars($product['nombre']) ?></h5>
                             <p class="card-text text-primary fw-bold fs-4"><?= number_format($product['precio'], 2) ?> €</p>
 
                             <form action="/cart/cart_add.php" method="post">

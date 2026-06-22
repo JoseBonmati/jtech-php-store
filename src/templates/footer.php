@@ -12,7 +12,7 @@
                 </div>
 
                 <div class="col-lg-4 text-center">
-                    <img src="../assets/logos/logo-grande.png" alt="Logo grande" class="img-fluid" style="max-width: 300px;">
+                    <img src="/assets/brand/logo-grande.png" alt="Logo grande" class="img-fluid" style="max-width: 300px;">
                 </div>
 
                 <div class="col-lg-4 text-lg-end text-center">
@@ -46,16 +46,14 @@
         </div>
     </footer>
 
-    <!-- Activar tooltips -->
+    <!-- Activate tooltips -->
     <script>
-
         document.addEventListener("DOMContentLoaded", function () {
             var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'))
             tooltipTriggerList.map(function (tooltipTriggerEl) {
                 return new bootstrap.Tooltip(tooltipTriggerEl)
             })
         })
-
     </script>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>

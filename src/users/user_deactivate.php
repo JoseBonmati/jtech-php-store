@@ -1,67 +1,72 @@
 <?php
 
-    require_once "../utilidades/conectar_db.php";
-    $con = conectar();
-    session_start();
+    // Session Management
+    if (session_status() === PHP_SESSION_NONE) {
+        session_start();
+    }
 
-    // Solo usuarios logueados
+    // Database Connection
+    require_once __DIR__ . "/../utils/Database.php";
+    $db = Database::getConnection();
+
+    // Only logged-in users allowed
     if (!isset($_SESSION["id"])) {
-        header("Location: ../usuarios/login.php?acceso=denegado");
+        header("Location: /index.php?unauthorized_access=1");
         exit;
     }
 
-    $admin = ($_SESSION["rol"] === "administrador");
+    $isAdmin = ($_SESSION["rol"] === "administrador");
 
-    if ($admin) {
+    if ($isAdmin) {
         $id = $_GET["id"] ?? null;
     } else {
         $id = $_SESSION["id"];
     }
     
-    $accion = $_GET["accion"] ?? null;
+    $action = $_GET["action"] ?? null;
 
-    if (!$id || !$accion) {
-        header("Location: ../index.php");
+    if (!$id || !$action) {
+        header("Location: /index.php");
         exit;
     }
 
-    // Restricciones de acceso:
-    // 1. Un usuario normal solo puede desactivarse a sí mismo.
-    // 2. Un administrador NO puede desactivarse a sí mismo.
-    if ((!$admin && $_SESSION["id"] != $id) ||
-        ($admin && $_SESSION["id"] == $id && $accion === "desactivar")) {
+    // Access restrictions:
+    // 1. A normal user can only deactivate themselves.
+    // 2. An admin CANNOT deactivate themselves.
+    if ((!$isAdmin && $_SESSION["id"] != $id) ||
+        ($isAdmin && $_SESSION["id"] == $id && $action === "deactivate")) {
 
-        header("Location: ../index.php?acceso=denegado");
+        header("Location: /index.php?unauthorized_access=1");
         exit;
     }
 
-    // Determinar nuevo estado
-    if ($accion === "desactivar") {
-        $estadoNuevo = "inactivo";
-    } elseif ($accion === "activar" && $admin) {
-        $estadoNuevo = "activo";
+    // Determine new status (DB values remain in Spanish)
+    if ($action === "deactivate") {
+        $newStatus = "inactivo";
+    } elseif ($action === "activate" && $isAdmin) {
+        $newStatus = "activo";
     } else {
-        header("Location: ../index.php");
+        header("Location: /index.php");
         exit;
     }
 
-    // Actualizar estado
-    $query = $con->prepare("UPDATE usuarios SET estado = :estado WHERE id = :id");
-    $query->execute([
-        ":estado" => $estadoNuevo,
+    // Update status
+    $stmt = $db->prepare("UPDATE usuarios SET estado = :status WHERE id = :id");
+    $stmt->execute([
+        ":status" => $newStatus,
         ":id" => $id
     ]);
 
-    // Si un usuario normal se desactiva → cerrar sesión
-    if (!$admin && $accion === "desactivar") {
+    // If a normal user deactivates themselves -> log out
+    if (!$isAdmin && $action === "deactivate") {
         session_unset();
         session_destroy();
-        header("Location: ../index.php?cuentaDesactivada=1");
+        header("Location: /index.php?account_deactivated=1");
         exit;
     }
 
-    // Volver a edición del usuario
-    header("Location: usuarioEditar.php?id=" . urlencode($id) . "&estadoCambiado=1");
+    // Return to user edit page
+    header("Location: /users/user_edit.php?id=" . urlencode((string)$id) . "&status_changed=1");
     exit;
 
 ?>
