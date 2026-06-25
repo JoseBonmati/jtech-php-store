@@ -1,54 +1,61 @@
 <?php
 
-    require_once "../utilidades/conectar_db.php";
-    $con = conectar();
-    session_start();
+    // Session Management
+    if (session_status() === PHP_SESSION_NONE) {
+        session_start();
+    }
 
-    $idCarrito = $_POST["id"] ?? null;
-    $cantidad = (int) ($_POST["cantidad"] ?? 1);
+    // Database Connection
+    require_once __DIR__ . "/../utils/Database.php";
+    $db = Database::getConnection();
 
-    $idUsuario = $_SESSION["id"] ?? null;
-    $token = $_SESSION["carrito_token"];
+    // Fetch POST and Session variables
+    $cartId = $_POST["id"] ?? null;
+    $quantity = (int) ($_POST["quantity"] ?? 1);
 
-    if (!$idCarrito || $cantidad < 1) {
-        header("Location: carrito.php");
+    $userId = $_SESSION["id"] ?? null;
+    $cartToken = $_SESSION["cart_token"] ?? null;
+
+    if (!$cartId || $quantity < 1) {
+        header("Location: /cart/cart.php");
         exit;
     }
 
-    // Obtener el producto y su stock
-    $sql = $con->prepare("SELECT c.id_producto, p.stock FROM carrito c JOIN productos p ON c.id_producto = p.id WHERE c.id = :id");
-    $sql->execute([":id" => $idCarrito]);
-    $producto = $sql->fetch(PDO::FETCH_ASSOC);
+    // Fetch the product and its current stock
+    $stmt = $db->prepare("SELECT c.id_producto, p.stock FROM carrito c JOIN productos p ON c.id_producto = p.id WHERE c.id = :id");
+    $stmt->execute([":id" => $cartId]);
+    $product = $stmt->fetch(PDO::FETCH_ASSOC);
 
-    if (!$producto) {
-        header("Location: carrito.php?errorC=itemNoExiste");
+    if (!$product) {
+        header("Location: /cart/cart.php?cart_error=item_not_found");
         exit;
     }
 
-    // Comprobar stock
-    if ($cantidad > $producto["stock"]) {
-        header("Location: carrito.php?errorC=stockInsuficiente");
+    // Check if the requested quantity exceeds available stock
+    if ($quantity > $product["stock"]) {
+        header("Location: /cart/cart.php?cart_error=insufficient_stock");
         exit;
     }
 
-    // Actualizar según usuario o invitado
-    if ($idUsuario) {
-        $sql = $con->prepare("UPDATE carrito SET cantidad = :cantidad WHERE id = :id AND id_usuario = :idUsuario");
-        $sql->execute([
-            ":cantidad" => $cantidad,
-            ":id" => $idCarrito,
-            ":idUsuario" => $idUsuario
+    // Update cart quantity based on whether the user is logged in or a guest
+    if ($userId) {
+        $updateStmt = $db->prepare("UPDATE carrito SET cantidad = :quantity WHERE id = :id AND id_usuario = :userId");
+        $updateStmt->execute([
+            ":quantity" => $quantity,
+            ":id" => $cartId,
+            ":userId" => $userId
         ]);
     } else {
-        $sql = $con->prepare("UPDATE carrito SET cantidad = :cantidad WHERE id = :id AND token = :token AND id_usuario IS NULL");
-        $sql->execute([
-            ":cantidad" => $cantidad,
-            ":id" => $idCarrito,
-            ":token" => $token
+        $updateStmt = $db->prepare("UPDATE carrito SET cantidad = :quantity WHERE id = :id AND token = :token AND id_usuario IS NULL");
+        $updateStmt->execute([
+            ":quantity" => $quantity,
+            ":id" => $cartId,
+            ":token" => $cartToken
         ]);
     }
 
-    header("Location: carrito.php?actualizado=1");
+    // Redirect with success parameter
+    header("Location: /cart/cart.php?updated=1");
     exit;
 
 ?>

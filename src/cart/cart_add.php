@@ -1,80 +1,84 @@
 <?php
 
-    require_once "../utilidades/conectar_db.php";
-    $con = conectar();
-    session_start();
+    // Session Management
+    if (session_status() === PHP_SESSION_NONE) {
+        session_start();
+    }
 
-    $idProducto = $_POST["id_producto"] ?? null;
-    $idUsuario = $_SESSION["id"] ?? null;
-    $token = $_SESSION["carrito_token"];
+    // Database Connection
+    require_once __DIR__ . "/../utils/Database.php";
+    $db = Database::getConnection();
 
-    if (!$idProducto) {
-        header("Location: ../index.php?errorC=productoInvalido");
+    $productId = $_POST["product_id"] ?? null;
+    $userId = $_SESSION["id"] ?? null;
+    $cartToken = $_SESSION["cart_token"] ?? null;
+
+    if (!$productId) {
+        header("Location: /index.php?error=invalidProduct");
         exit;
     }
 
-    // Comprobar que el producto existe y tiene stock
-    $sql = $con->prepare("SELECT stock, estado FROM productos WHERE id = :id");
-    $sql->execute([":id" => $idProducto]);
-    $producto = $sql->fetch(PDO::FETCH_ASSOC);
+    // Check if the product exists and is active (Database columns remain in Spanish)
+    $stmt = $db->prepare("SELECT stock, estado FROM productos WHERE id = :id");
+    $stmt->execute([":id" => $productId]);
+    $product = $stmt->fetch(PDO::FETCH_ASSOC);
 
-    if (!$producto || $producto["estado"] !== "activo") {
-        header("Location: ../index.php?errorC=productoNoDisponible");
+    if (!$product || $product["estado"] !== "activo") {
+        header("Location: /index.php?error=invalidProduct");
         exit;
     }
 
-    if ($producto["stock"] <= 0) {
-        header("Location: ../index.php?errorC=sinStock");
+    if ($product["stock"] <= 0) {
+        header("Location: /index.php?error=outOfStock");
         exit;
     }
 
-    // Comprobar si ya está en el carrito
-    if ($idUsuario) {
-        $sql = $con->prepare("SELECT id, cantidad FROM carrito WHERE id_usuario = :idUsuario AND id_producto = :idProducto");
-        $sql->execute([
-            ":idUsuario" => $idUsuario,
-            ":idProducto" => $idProducto
+    // Check if the item is already present in the cart
+    if ($userId) {
+        $stmt = $db->prepare("SELECT id, cantidad FROM carrito WHERE id_usuario = :userId AND id_producto = :productId");
+        $stmt->execute([
+            ":userId" => $userId,
+            ":productId" => $productId
         ]);
     } else {
-        $sql = $con->prepare("SELECT id, cantidad FROM carrito WHERE token = :token AND id_usuario IS NULL AND id_producto = :idProducto");
-        $sql->execute([
-            ":token" => $token,
-            ":idProducto" => $idProducto
+        $stmt = $db->prepare("SELECT id, cantidad FROM carrito WHERE token = :token AND id_usuario IS NULL AND id_producto = :productId");
+        $stmt->execute([
+            ":token" => $cartToken,
+            ":productId" => $productId
         ]);
     }
 
-    $item = $sql->fetch(PDO::FETCH_ASSOC);
+    $cartItem = $stmt->fetch(PDO::FETCH_ASSOC);
 
-    // Si ya existe, aumentar cantidad sin superar stock
-    if ($item) {
-        $nuevaCantidad = $item["cantidad"] + 1;
+    // If it already exists, increment quantity without exceeding available warehouse stock
+    if ($cartItem) {
+        $newQuantity = $cartItem["cantidad"] + 1;
 
-        if ($nuevaCantidad > $producto["stock"]) {
-            header("Location: ../index.php?errorC=stockInsuficiente");
+        if ($newQuantity > $product["stock"]) {
+            header("Location: /index.php?error=insufficientStock");
             exit;
         }
 
-        $sql = $con->prepare("UPDATE carrito SET cantidad = :cantidad WHERE id = :id");
-        $sql->execute([
-            ":cantidad" => $nuevaCantidad,
-            ":id" => $item["id"]
+        $updateStmt = $db->prepare("UPDATE carrito SET cantidad = :quantity WHERE id = :id");
+        $updateStmt->execute([
+            ":quantity" => $newQuantity,
+            ":id" => $cartItem["id"]
         ]);
 
     } else {
-        // Insertar nuevo producto en el carrito
-        $sql = $con->prepare("INSERT INTO carrito (id_usuario, token, id_producto, cantidad) VALUES (:idUsuario, :token, :idProducto, 1)");
-        $sql->execute([
-            ":idUsuario" => $idUsuario,
-            ":token" => $token,
-            ":idProducto" => $idProducto
+        // Insert new product into the cart database table
+        $insertStmt = $db->prepare("INSERT INTO carrito (id_usuario, token, id_producto, cantidad) VALUES (:userId, :token, :productId, 1)");
+        $insertStmt->execute([
+            ":userId" => $userId,
+            ":token" => $cartToken,
+            ":productId" => $productId
         ]);
     }
 
-    $redireccionar = $_POST["redireccionar"] ?? "../index.php";
-    $redireccionar .= (str_contains($redireccionar, '?') ? '&' : '?') . "agregado=1";
+    $redirectTo = $_POST["redirect"] ?? "/index.php";
+    $redirectTo .= (str_contains($redirectTo, '?') ? '&' : '?') . "added=1";
 
-    header("Location: " . $redireccionar);
+    header("Location: " . $redirectTo);
     exit;
-
 
 ?>

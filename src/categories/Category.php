@@ -1,43 +1,56 @@
 <?php
 
-    // Clase entidad Categoría
-    class Categoria {
+    //Category Entity Class
+    class Category {
 
-        private $id;
-        private $nombre;
-        private $estado;
+        private ?int $id = null;
+        private ?string $name = null;
+        private ?string $status = null;
 
-        public function getId() {
+        public function getId(): ?int {
             return $this->id;
         }
 
-        public function getNombre() {
-            return $this->nombre;
+        public function getName(): ?string {
+            return $this->name;
         }
 
-        public function getEstado() {
-            return $this->estado;
+        public function getStatus(): ?string {
+            return $this->status;
         }
     }
 
-    // Obtener categorías con paginación y ordenación
-    function obtenerCategorias($con, $pagina, $resultadosPP, $orden, $tipoOrden) {
+    //Fetches categories with pagination, sorting, and mapping to Category class
+    function getCategories(PDO $db, int $page, int $perPage, string $orderBy, string $sortDirection): array {
 
-        $inicio = ($pagina - 1) * $resultadosPP;
+        // Calculate the offset for SQL pagination
+        $offset = ($page - 1) * $perPage;
 
-        // Columnas permitidas para ordenar
-        $columnasPermitidas = ["id", "nombre", "estado"];
-        if (!in_array($orden, $columnasPermitidas)) $orden = "id";
-        $tipoOrden = strtoupper($tipoOrden) === "DESC" ? "DESC" : "ASC";
+        // White-list mapping parameter keys to avoid SQL Injection via ORDER BY
+        $allowedColumns = [
+            "id" => "id",
+            "name" => "nombre",
+            "status" => "estado"
+        ];
 
-        $query = $con->prepare("SELECT id, nombre, estado FROM categorias ORDER BY $orden $tipoOrden LIMIT :inicio, :resultados");
-        $query->bindParam(":inicio", $inicio, PDO::PARAM_INT);
-        $query->bindParam(":resultados", $resultadosPP, PDO::PARAM_INT);
-        $query->execute();
+        // Fallback to safe defaults if parameters are invalid
+        $orderField = $allowedColumns[$orderBy] ?? "id";
+        $sortDirection = strtoupper($sortDirection) === "DESC" ? "DESC" : "ASC";
 
-        // Mapear resultados a la clase Categoria
-        $query->setFetchMode(PDO::FETCH_CLASS, "Categoria");
-        return $query->fetchAll();
+        // Clean SQL query with aliases to hydrate the Category class seamlessly
+        $sql = "SELECT id, nombre AS name, estado AS status FROM categorias 
+                ORDER BY $orderField $sortDirection LIMIT :offset, :limit";
+
+        $stmt = $db->prepare($sql);
+
+        // Bind variables to ensure correct integer hydration
+        $stmt->bindValue(":offset", $offset, PDO::PARAM_INT);
+        $stmt->bindValue(":limit", $perPage, PDO::PARAM_INT);
+        $stmt->execute();
+
+        // Direct OOP Mapping
+        $stmt->setFetchMode(PDO::FETCH_CLASS, "Category");
+        return $stmt->fetchAll();
     }
 
 ?>

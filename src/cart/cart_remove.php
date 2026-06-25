@@ -1,37 +1,43 @@
 <?php
 
-    require_once "../utilidades/conectar_db.php";
-    $con = conectar();
-    session_start();
+    // Session Management
+    if (session_status() === PHP_SESSION_NONE) {
+        session_start();
+    }
 
-    // Detectar si es usuario o invitado
-    $idUsuario = $_SESSION["id"] ?? null;
-    $token = $_SESSION["carrito_token"];
+    // Database Connection
+    require_once __DIR__ . "/../utils/Database.php";
+    $db = Database::getConnection();
 
-    // Recoger ID del carrito
-    $idCarrito = $_POST["id"] ?? null;
+    // Detect if the user is logged in or a guest
+    $userId = $_SESSION["id"] ?? null;
+    $cartToken = $_SESSION["cart_token"] ?? null;
 
-    if (!$idCarrito) {
-        header("Location: carrito.php");
+    // Retrieve Cart ID from POST request
+    $cartId = $_POST["id"] ?? null;
+
+    if (!$cartId) {
+        header("Location: /cart/cart.php");
         exit;
     }
 
-    // Eliminar según sea usuario o invitado
-    if ($idUsuario) {
-        $sql = $con->prepare("DELETE FROM carrito WHERE id = :id AND id_usuario = :idUsuario");
-        $sql->execute([
-            ":id" => $idCarrito,
-            ":idUsuario" => $idUsuario
+    // Delete item based on whether it's a registered user or a guest
+    if ($userId) {
+        $stmt = $db->prepare("DELETE FROM carrito WHERE id = :id AND id_usuario = :userId");
+        $stmt->execute([
+            ":id" => $cartId,
+            ":userId" => $userId
         ]);
     } else {
-        $sql = $con->prepare("DELETE FROM carrito WHERE id = :id AND token = :token AND id_usuario IS NULL");
-        $sql->execute([
-            ":id" => $idCarrito,
-            ":token" => $token
+        $stmt = $db->prepare("DELETE FROM carrito WHERE id = :id AND token = :token AND id_usuario IS NULL");
+        $stmt->execute([
+            ":id" => $cartId,
+            ":token" => $cartToken
         ]);
     }
 
-    header("Location: carrito.php");
+    // Redirect to cart with the translated success parameter
+    header("Location: /cart/cart.php?deleted=1");
     exit;
 
 ?>

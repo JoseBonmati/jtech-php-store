@@ -1,46 +1,53 @@
 <?php
 
-    require_once "../utilidades/conectar_db.php";
-    $con = conectar();
-    session_start();
+    // Session Management
+    if (session_status() === PHP_SESSION_NONE) {
+        session_start();
+    }
 
-    // Restringir acceso: solo administradores o empleados pueden ver esta página
+    // Database Connection
+    require_once __DIR__ . "/../utils/Database.php";
+    $db = Database::getConnection();
+
+    // Restrict access: only administrators or employees can view this page
     if (!isset($_SESSION["rol"]) || ($_SESSION["rol"] !== "administrador" && $_SESSION["rol"] !== "empleado")) {
-        header("Location: ../index.php?acceso=denegado");
+        header("Location: /index.php?unauthorized_access=1");
         exit;
     }
 
-    // Array para almacenar mensajes de error
-    $mensajesError = [];
+    // Array to store error messages
+    $errorMessages = [];
 
-    if (isset($_POST["enviar"])) {
-        $nombre = trim($_POST["nombre"] ?? "");
+    // Check if form was submitted
+    if (isset($_POST["create_submit"])) {
+        $name = trim($_POST["name"] ?? "");
 
-        // Validar nombre
-        if ($nombre === "") {
-            $mensajesError[] = "El campo Nombre no puede estar vacío.";
+        // Validate name
+        if ($name === "") {
+            $errorMessages[] = "El campo Nombre no puede estar vacío.";
         }
 
-        // Comprobar si la categoría ya existe
-        if (empty($mensajesError)) {
-            $consulta = $con->prepare("SELECT COUNT(*) FROM categorias WHERE nombre = :nombre");
-            $consulta->execute([":nombre" => $nombre]);
+        // Check if the category already exists
+        if (empty($errorMessages)) {
+            $checkStmt = $db->prepare("SELECT COUNT(*) FROM categorias WHERE nombre = :name");
+            $checkStmt->execute([":name" => $name]);
 
-            if ($consulta->fetchColumn() > 0) {
-                $mensajesError[] = "La categoría ya está registrada, use otro nombre.";
+            if ($checkStmt->fetchColumn() > 0) {
+                $errorMessages[] = "La categoría ya está registrada, use otro nombre.";
             }
         }
 
-        // Insertar nueva categoría si no hay errores
-        if (empty($mensajesError)) {
-            $insert = $con->prepare("INSERT INTO categorias (nombre, estado) VALUES (:nombre, 'activo')");
-            $insert->execute([":nombre" => $nombre]);
+        // Insert new category if no errors
+        if (empty($errorMessages)) {
+            $insertStmt = $db->prepare("INSERT INTO categorias (nombre, estado) VALUES (:name, 'activo')");
+            $insertStmt->execute([":name" => $name]);
 
-            if ($insert->rowCount() > 0) {
-                header("Location: categoriaConsulta.php?nombreN=" . urlencode($nombre));
+            if ($insertStmt->rowCount() > 0) {
+                // Redirect with success parameter
+                header("Location: /categories/category_list.php?created_category=" . urlencode($name));
                 exit;
             } else {
-                $mensajesError[] = "Ha ocurrido un error con la base de datos.";
+                $errorMessages[] = "Ha ocurrido un error con la base de datos.";
             }
         }
     }
@@ -54,8 +61,8 @@
     <title>Nueva categoría</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
-    <link rel="stylesheet" href="../estilos.css">
-    <link rel="icon" type="image/x-icon" href="../assets/logos/jtech-favicon.ico"/>
+    <link rel="stylesheet" href="/assets/css/style.css">
+    <link rel="icon" type="image/x-icon" href="/assets/brand/jtech-favicon.ico"/>
 </head>
 <body>
     <div class="d-flex justify-content-center align-items-center jtech-bg">
@@ -63,28 +70,28 @@
             
             <h2 class="text-center mb-4 fw-bold">Crear categoría</h2>
 
-            <!-- Errores del servidor -->
+            <!-- Server errors -->
             <div class="mb-3">
                 <?php
-                    if (!empty($mensajesError)) {
-                        echo "<p class='alert alert-danger mb-0'>" . implode("<br>", $mensajesError) . "</p>";
+                    if (!empty($errorMessages)) {
+                        echo "<p class='alert alert-danger mb-0'>" . implode("<br>", $errorMessages) . "</p>";
                     }
                 ?>
             </div>
 
-            <form method="post" action="categoriaCrear.php">
+            <form method="post" action="/categories/category_create.php">
                 <p class="mb-3 text-center fw-semibold">Rellena los siguientes datos para crear una nueva categoría.</p>
 
                 <div class="mb-3">
-                    <label for="nombre" class="form-label">Nombre de la categoría</label>
-                    <input type="text" class="form-control jtech-input" name="nombre" id="nombre" maxlength="100"
-                           value="<?php if(isset($_POST['nombre'])) echo htmlspecialchars($_POST['nombre']); ?>">
+                    <label for="name" class="form-label">Nombre de la categoría</label>
+                    <input type="text" class="form-control jtech-input" name="name" id="name" maxlength="100"
+                           value="<?php if(isset($_POST['name'])) echo htmlspecialchars($_POST['name']); ?>">
                 </div>
 
                 <div class="d-grid gap-3">
-                    <button type="submit" class="btn fw-semibold btn-jtech" name="enviar">Crear categoría</button>
+                    <button type="submit" class="btn fw-semibold btn-jtech" name="create_submit">Crear categoría</button>
                     <hr class="jtech-divider">
-                    <a href="categoriaConsulta.php" class="btn btn-outline-secondary">Volver</a>
+                    <a href="/categories/category_list.php" class="btn btn-outline-secondary">Volver</a>
                 </div>
             </form>
         </div>

@@ -1,28 +1,34 @@
 <?php
 
-    require_once "../utilidades/conectar_db.php";
-    $con = conectar();
-    session_start();
+    // Session Management
+    if (session_status() === PHP_SESSION_NONE) {
+        session_start();
+    }
 
-    // Detectar si es usuario o invitado
-    $idUsuario = $_SESSION["id"] ?? null;
-    $token = $_SESSION["carrito_token"] ?? null;
+    // Database Connection
+    require_once __DIR__ . "/../utils/Database.php";
+    $db = Database::getConnection();
 
-    if (!$idUsuario && !$token) {
-        header("Location: carrito.php");
+    // Detect if the user is logged in or a guest
+    $userId = $_SESSION["id"] ?? null;
+    $cartToken = $_SESSION["cart_token"] ?? null;
+
+    if (!$userId && !$cartToken) {
+        header("Location: /cart/cart.php");
         exit;
     }
 
-    // Vaciar carrito
-    if ($idUsuario) {
-        $sql = $con->prepare("DELETE FROM carrito WHERE id_usuario = :idUsuario");
-        $sql->execute([":idUsuario" => $idUsuario]);
+    // Empty cart based on user status
+    if ($userId) {
+        $stmt = $db->prepare("DELETE FROM carrito WHERE id_usuario = :userId");
+        $stmt->execute([":userId" => $userId]);
     } else {
-        $sql = $con->prepare("DELETE FROM carrito WHERE token = :token AND id_usuario IS NULL");
-        $sql->execute([":token" => $token]);
+        $stmt = $db->prepare("DELETE FROM carrito WHERE token = :token AND id_usuario IS NULL");
+        $stmt->execute([":token" => $cartToken]);
     }
 
-    header("Location: carrito.php?vaciado=1");
+    // Redirect to cart with the translated success parameter
+    header("Location: /cart/cart.php?emptied=1");
     exit;
 
 ?>

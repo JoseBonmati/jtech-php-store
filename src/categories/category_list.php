@@ -1,13 +1,17 @@
 <?php
 
-    require_once "../utilidades/conectar_db.php";
-    require_once "Categoria.php";
-    $con = conectar();
-    session_start();
+    // Session Management
+    if (session_status() === PHP_SESSION_NONE) {
+        session_start();
+    }
 
-    // Restringir acceso: solo administradores o empleados pueden ver esta página
+    require_once __DIR__ . "/../utils/Database.php";
+    require_once __DIR__ . "/Category.php";
+    $db = Database::getConnection();
+
+    // Restrict access: only administrators or employees can view this page
     if (!isset($_SESSION["rol"]) || ($_SESSION["rol"] !== "administrador" && $_SESSION["rol"] !== "empleado")) {
-        header("Location: ../index.php?acceso=denegado");
+        header("Location: /index.php?unauthorized_access=1");
         exit;
     }
 
@@ -21,122 +25,127 @@
     <title>Gestión de Categorías</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
-    <link rel="stylesheet" href="../estilos.css">
-    <link rel="icon" type="image/x-icon" href="../assets/logos/jtech-favicon.ico"/>
+    <link rel="stylesheet" href="/assets/css/style.css">
+    <link rel="icon" type="image/x-icon" href="/assets/brand/jtech-favicon.ico"/>
 </head>
 <body>
     <div class="jtech-bg d-flex justify-content-center align-items-start py-5">
         <div class="jtech-card-wide p-4 w-100">
             <h2 class="text-center fw-bold mb-4">Gestión de Categorías</h2>
 
-            <!-- Mensajes de éxito -->
+            <!-- Success Messages -->
             <div class="mb-3">
                 <?php
 
-                    if (isset($_GET["nombreE"])) {
-                        $nombreE = htmlspecialchars($_GET["nombreE"]);
-                        echo "<p class='alert alert-success'>La categoría <b>$nombreE</b> ha sido modificada correctamente.</p>";
+                    if (isset($_GET["updated_category"])) {
+                        $updatedCategory = htmlspecialchars($_GET["updated_category"]);
+                        echo "<p class='alert alert-success'>La categoría <b>$updatedCategory</b> ha sido modificada correctamente.</p>";
                     }
-                    if (isset($_GET["nombreN"])) {
-                        $nombreN = htmlspecialchars($_GET["nombreN"]);
-                        echo "<p class='alert alert-success'>La categoría <b>$nombreN</b> se ha creado correctamente.</p>";
+                    if (isset($_GET["created_category"])) {
+                        $createdCategory = htmlspecialchars($_GET["created_category"]);
+                        echo "<p class='alert alert-success'>La categoría <b>$createdCategory</b> se ha creado correctamente.</p>";
                     }
-                    if (isset($_GET["nombreD"])) {
-                        $nombreD = htmlspecialchars($_GET["nombreD"]);
-                        echo "<p class='alert alert-success'>La categoría <b>$nombreD</b> se ha eliminado correctamente.</p>";
+                    if (isset($_GET["deleted_category"])) {
+                        $deletedCategory = htmlspecialchars($_GET["deleted_category"]);
+                        echo "<p class='alert alert-success'>La categoría <b>$deletedCategory</b> se ha eliminado correctamente.</p>";
                     }
-                    if (isset($_GET["nombreS"])) {
-                        $nombreS = htmlspecialchars($_GET["nombreS"]);
-                        echo "<p class='alert alert-success'>La subcategoría <b>$nombreS</b> se ha creado correctamente.</p>";
+                    if (isset($_GET["created_subcategory"])) {
+                        $createdSubcategory = htmlspecialchars($_GET["created_subcategory"]);
+                        echo "<p class='alert alert-success'>La subcategoría <b>$createdSubcategory</b> se ha creado correctamente.</p>";
                     }
-                    if (isset($_GET["nombreSD"])) {
-                        $nombreSD = htmlspecialchars($_GET["nombreSD"]);
-                        echo "<p class='alert alert-success'>La subcategoría <b>$nombreSD</b> se ha eliminado correctamente.</p>";
+                    if (isset($_GET["deleted_subcategory"])) {
+                        $deletedSubcategory = htmlspecialchars($_GET["deleted_subcategory"]);
+                        echo "<p class='alert alert-success'>La subcategoría <b>$deletedSubcategory</b> se ha eliminado correctamente.</p>";
                     }
 
                 ?>
             </div>
 
-            <!-- Barra de búsqueda -->
-            <form method="get" action="categoriaConsulta.php" class="mb-4 jtech-search mx-auto">
+            <form method="get" action="/categories/category_list.php" class="mb-4 jtech-search mx-auto">
                 <div class="input-group">
-                    <input type="text" name="buscar" class="form-control" placeholder="Buscar por nombre..." autocomplete="off"
-                           value="<?= isset($_GET['buscar']) ? htmlspecialchars($_GET['buscar']) : '' ?>">
+                    <input type="text" name="search" class="form-control" placeholder="Buscar por nombre..." autocomplete="off"
+                           value="<?= isset($_GET['search']) ? htmlspecialchars($_GET['search']) : '' ?>">
                     <button class="btn btn-jtech fw-semibold" type="submit">Buscar</button>
                 </div>
             </form>
 
             <?php
 
-                // Configuración de paginación y ordenación
-                $pagina = isset($_GET["pagina"]) ? (int)$_GET["pagina"] : 1;
-                $resultadosPP = 5;
+                // Pagination and sorting configuration
+                $page = isset($_GET["page"]) ? (int)$_GET["page"] : 1;
+                $perPage = 5;
 
-                $columnasPermitidas = ["id","nombre", "estado"];
-                $orden = isset($_GET["orden"]) ? $_GET["orden"] : "nombre";
-                if (!in_array($orden, $columnasPermitidas)) $orden = "nombre";
+                // White-list mapping for sorting
+                $allowedColumns = [
+                    "id" => "id",
+                    "name" => "nombre",
+                    "status" => "estado"
+                ];
+                
+                $sortBy = isset($_GET["sort_by"]) ? $_GET["sort_by"] : "name";
+                $orderField = $allowedColumns[$sortBy] ?? "nombre";
 
-                $tipoOrden = isset($_GET["tipoOrden"]) ? strtoupper($_GET["tipoOrden"]) : "ASC";
-                if (!in_array($tipoOrden, ["ASC", "DESC"])) $tipoOrden = "ASC";
+                $sortDir = isset($_GET["sort_dir"]) ? strtoupper($_GET["sort_dir"]) : "ASC";
+                if (!in_array($sortDir, ["ASC", "DESC"])) $sortDir = "ASC";
 
-                // Si hay búsqueda, aplicamos filtro + orden + paginación
-                if (isset($_GET["buscar"]) && trim($_GET["buscar"]) !== "") {
+                // If search is active, apply filter + sort + pagination
+                if (isset($_GET["search"]) && trim($_GET["search"]) !== "") {
 
-                    $busqueda = "%" . trim($_GET["buscar"]) . "%";
+                    $searchTerm = "%" . trim($_GET["search"]) . "%";
 
-                    // Contar resultados filtrados
-                    $countQuery = $con->prepare("SELECT COUNT(*) AS total FROM categorias WHERE nombre LIKE :busqueda");
-                    $countQuery->execute([":busqueda" => $busqueda]);
-                    $categoriasTotal = $countQuery->fetch()["total"];
+                    // Count filtered results
+                    $countQuery = $db->prepare("SELECT COUNT(*) AS total FROM categorias WHERE nombre LIKE :search");
+                    $countQuery->execute([":search" => $searchTerm]);
+                    $totalCategories = $countQuery->fetch(PDO::FETCH_ASSOC)["total"];
 
-                    $paginasTotal = ceil($categoriasTotal / $resultadosPP);
-                    $inicio = ($pagina - 1) * $resultadosPP;
+                    $totalPages = ceil($totalCategories / $perPage);
+                    $offset = ($page - 1) * $perPage;
 
-                    // Obtener resultados filtrados con paginación y ordenación
-                    $query = $con->prepare("SELECT id, nombre, estado FROM categorias WHERE nombre LIKE :busqueda ORDER BY $orden $tipoOrden LIMIT :inicio, :resultados");
+                    // Fetch filtered results with aliases mapped to the Category class properties
+                    $query = $db->prepare("SELECT id, nombre AS name, estado AS status FROM categorias 
+                                           WHERE nombre LIKE :search ORDER BY $orderField $sortDir LIMIT :offset, :limit");
 
-                    $query->bindValue(":busqueda", $busqueda, PDO::PARAM_STR);
-                    $query->bindValue(":inicio", $inicio, PDO::PARAM_INT);
-                    $query->bindValue(":resultados", $resultadosPP, PDO::PARAM_INT);
+                    $query->bindValue(":search", $searchTerm, PDO::PARAM_STR);
+                    $query->bindValue(":offset", $offset, PDO::PARAM_INT);
+                    $query->bindValue(":limit", $perPage, PDO::PARAM_INT);
                     $query->execute();
 
-                    $query->setFetchMode(PDO::FETCH_CLASS, "Categoria");
-                    $categorias = $query->fetchAll();
+                    $query->setFetchMode(PDO::FETCH_CLASS, "Category");
+                    $categories = $query->fetchAll();
 
                 } else {
 
-                    // Consultar categorías normalmente
-                    $categorias = obtenerCategorias($con, $pagina, $resultadosPP, $orden, $tipoOrden);
+                    // Fetch categories normally
+                    $categories = getCategories($db, $page, $perPage, $sortBy, $sortDir);
 
-                    $query = $con->prepare("SELECT count(*) AS total FROM categorias");
-                    $query->execute();
-                    $fila = $query->fetch();
-                    $categoriasTotal = $fila["total"];
+                    $countQuery = $db->query("SELECT count(*) AS total FROM categorias");
+                    $totalCategories = $countQuery->fetch(PDO::FETCH_ASSOC)["total"];
 
-                    $paginasTotal = ceil($categoriasTotal / $resultadosPP);
+                    $totalPages = ceil($totalCategories / $perPage);
                 }
 
-                // Iconos de ordenación
-                function iconoOrden($columna, $orden, $tipoOrden) {
-                    if ($columna !== $orden) return '<i class="bi bi-arrow-down-up"></i>';
-                    return $tipoOrden === "ASC"
+                // Sorting icons
+                function sortIcon(string $col, string $currentSortBy, string $currentSortDir): string {
+                    if ($col !== $currentSortBy) return '<i class="bi bi-arrow-down-up"></i>';
+                    return $currentSortDir === "ASC"
                         ? '<i class="bi bi-arrow-up"></i>'
                         : '<i class="bi bi-arrow-down"></i>';
                 }
 
-                function urlOrden($columna, $tipoOrden) {
-                    $nuevoTipo = $tipoOrden === "ASC" ? "DESC" : "ASC";
-                    $url = "categoriaConsulta.php?orden=$columna&tipoOrden=$nuevoTipo";
-                    if (isset($_GET["buscar"])) {
-                        $url .= "&buscar=" . urlencode($_GET["buscar"]);
+                // Sorting URL
+                function sortUrl(string $col, string $currentSortDir): string {
+                    $newDir = $currentSortDir === "ASC" ? "DESC" : "ASC";
+                    $url = "/categories/category_list.php?sort_by=$col&sort_dir=$newDir";
+                    if (isset($_GET["search"])) {
+                        $url .= "&search=" . urlencode($_GET["search"]);
                     }
                     return $url;
                 }
 
-                // Obtener subcategorías para una categoría
-                function obtenerSubcategoriasPorCategoria($con, $categoriaId) {
-                    $query = $con->prepare("SELECT id, nombre, estado FROM subcategorias WHERE id_categoria = :id ORDER BY nombre ASC");
-                    $query->execute([":id" => $categoriaId]);
+                // Fetch subcategories for a specific category
+                function getSubcategoriesByCategory(PDO $db, int $categoryId): array {
+                    $query = $db->prepare("SELECT id, nombre AS name, estado AS status FROM subcategorias WHERE id_categoria = :id ORDER BY nombre ASC");
+                    $query->execute([":id" => $categoryId]);
                     return $query->fetchAll(PDO::FETCH_ASSOC);
                 }
             ?>
@@ -145,9 +154,9 @@
                 <table class="jtech-table align-middle text-center mx-auto">
                     <thead>
                         <tr>
-                            <th><a href="<?= urlOrden('id', $tipoOrden) ?>">ID <?= iconoOrden('id', $orden, $tipoOrden) ?></a></th>
-                            <th><a href="<?= urlOrden('nombre', $tipoOrden) ?>">Nombre <?= iconoOrden('nombre', $orden, $tipoOrden) ?></a></th>
-                            <th><a href="<?= urlOrden('estado', $tipoOrden) ?>">Estado <?= iconoOrden('estado', $orden, $tipoOrden) ?></a></th>
+                            <th><a href="<?= sortUrl('id', $sortDir) ?>">ID <?= sortIcon('id', $sortBy, $sortDir) ?></a></th>
+                            <th><a href="<?= sortUrl('name', $sortDir) ?>">Nombre <?= sortIcon('name', $sortBy, $sortDir) ?></a></th>
+                            <th><a href="<?= sortUrl('status', $sortDir) ?>">Estado <?= sortIcon('status', $sortBy, $sortDir) ?></a></th>
                             <th>Subcategorías</th>
                             <th>Editar</th>
                             <th>Borrar</th>
@@ -156,35 +165,37 @@
                     <tbody>
                         <?php
 
-                            if (empty($categorias)) {
+                            if (empty($categories)) {
                                 echo "<tr><td colspan='6' class='text-center py-3 text-muted'>
                                           No se encontraron categorías
                                       </td></tr>";
                             } else {
-                                foreach ($categorias as $categoria) {
+                                foreach ($categories as $category) {
                                     echo "<tr>";
-                                    echo "<td>" . htmlspecialchars($categoria->getId()) . "</td>";
-                                    echo "<td>" . htmlspecialchars($categoria->getNombre()) . "</td>";
-                                    echo "<td>" . htmlspecialchars($categoria->getEstado()) . "</td>";
+                                    echo "<td>" . htmlspecialchars((string)$category->getId()) . "</td>";
+                                    echo "<td>" . htmlspecialchars((string)$category->getName()) . "</td>";
+                                    echo "<td>" . htmlspecialchars((string)$category->getStatus()) . "</td>";
 
-                                    $subcategorias = obtenerSubcategoriasPorCategoria($con, $categoria->getId());
+                                    $subcategories = getSubcategoriesByCategory($db, $category->getId());
                                     echo "<td>";
-                                        if (empty($subcategorias)) {
+                                        if (empty($subcategories)) {
                                             echo "<span class='badge bg-secondary'>Sin subcategorías</span>";
                                         } else {
-                                            foreach ($subcategorias as $sub) {
-                                                $color = ($sub['estado'] === 'activo') ? 'bg-primary' : 'bg-secondary';
-                                                echo "<span class='badge $color me-1'>" . htmlspecialchars($sub['nombre']) . "</span>";
+                                            foreach ($subcategories as $sub) {
+                                                $color = ($sub['status'] === 'activo') ? 'bg-primary' : 'bg-secondary';
+                                                echo "<span class='badge $color me-1'>" . htmlspecialchars($sub['name']) . "</span>";
                                             }
                                         }
                                     echo "</td>";
 
-                                    echo "<td><a class='text-jtech fw-bold' href='categoriaEditar.php?id=" . $categoria->getId() . "'>
+                                    // Edit button
+                                    echo "<td><a class='text-jtech fw-bold' href='/categories/category_edit.php?id=" . $category->getId() . "'>
                                               <i class='bi bi-pencil-square'></i>
                                           </a></td>";
 
                                     if ($_SESSION["rol"] === "administrador") {
-                                        echo "<td><a class='text-danger fw-bold' href='categoriaEliminar.php?id=" . $categoria->getId() . "'>
+                                        // Delete button
+                                        echo "<td><a class='text-danger fw-bold' href='/categories/category_delete.php?id=" . $category->getId() . "'>
                                                 <i class='bi bi-trash-fill'></i>
                                               </a></td>";
                                     } else {
@@ -200,16 +211,16 @@
                 </table>
             </div>
 
-            <!-- Paginación -->
+            <!-- Pagination -->
             <div class="text-center mt-4">
                 <?php
 
-                    for ($i = 1; $i <= $paginasTotal; $i++) {
-                        $url = "categoriaConsulta.php?pagina=$i&orden=$orden&tipoOrden=$tipoOrden";
-                        if (isset($_GET["buscar"])) {
-                            $url .= "&buscar=" . urlencode($_GET["buscar"]);
+                    for ($i = 1; $i <= $totalPages; $i++) {
+                        $url = "/categories/category_list.php?page=$i&sort_by=$sortBy&sort_dir=$sortDir";
+                        if (isset($_GET["search"])) {
+                            $url .= "&search=" . urlencode($_GET["search"]);
                         }
-                        if ($i == $pagina) {
+                        if ($i == $page) {
                             echo "<button class='btn btn-jtech mx-1'>$i</button>";
                         } else {
                             echo "<a href='$url' class='btn btn-outline-jtech mx-1'>$i</a>";
@@ -220,16 +231,13 @@
 
             </div>
 
-            <div class="text-center mt-4 d-flex justify-content-center">
-                <a href="categoriaCrear.php" class="btn btn-jtech">Nueva categoría</a>
-            </div>
-            
-            <div class="text-center mt-4 d-flex justify-content-center">
-                <a href="../subcategorias/subcategoriaCrear.php" class="btn btn-jtech">Nueva Subcategoría</a>
+            <div class="text-center mt-4 d-flex justify-content-center gap-3">
+                <a href="/categories/category_create.php" class="btn btn-jtech">Nueva categoría</a>
+                <a href="/subcategories/subcategory_create.php" class="btn btn-jtech">Nueva Subcategoría</a>
             </div>
 
-            <div class="text-center text-lg-start mt-3">
-                <a href="../utilidades/panelAdministrador.php" class="btn btn-outline-secondary">Volver</a>
+            <div class="text-center text-lg-start mt-4">
+                <a href="/utils/admin_panel.php" class="btn btn-outline-secondary">Volver</a>
             </div>
         </div>
     </div>

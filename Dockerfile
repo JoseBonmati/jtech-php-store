@@ -1,8 +1,8 @@
-# Usa la imagen oficial de PHP con Apache
+# Use the official PHP image with Apache
 FROM php:8.2-apache
 
-# Instala las extensiones necesarias para conectarnos a MySQL
+# Install necessary PHP extensions for MySQL connection
 RUN docker-php-ext-install mysqli pdo pdo_mysql
 
-# Habilitam mod_rewrite de Apache
+# Enable Apache mod_rewrite for clean URLs and routing
 RUN a2enmod rewrite
