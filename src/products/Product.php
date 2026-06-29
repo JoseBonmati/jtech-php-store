@@ -1,85 +1,100 @@
 <?php
 
-    // Clase entidad Producto
-    class Producto {
+    //Product Entity Class
+    class Product {
 
-        private $id;
-        private $id_categoria;
-        private $id_subcategoria;
-        private $nombre;
-        private $descripcion;
-        private $precio;
-        private $stock;
-        private $imagen;
-        private $estado;
-        private $categoriaNombre;
-        private $subcategoriaNombre;
+        private ?int $id = null;
+        private ?int $category_id = null;
+        private ?int $subcategory_id = null;
+        private ?string $name = null;
+        private ?string $description = null;
+        private ?float $price = null;
+        private ?int $stock = null;
+        private ?string $image = null;
+        private ?string $status = null;
+        private ?string $category_name = null;
+        private ?string $subcategory_name = null;
 
-        public function getId() {
+        public function getId(): ?int {
             return $this->id;
         }
 
-        public function getIdCategoria() {
-            return $this->id_categoria;
+        public function getCategoryId(): ?int {
+            return $this->category_id;
         }
 
-        public function getIdSubcategoria() {
-            return $this->id_subcategoria;
+        public function getSubcategoryId(): ?int {
+            return $this->subcategory_id;
         }
 
-        public function getNombre() {
-            return $this->nombre;
+        public function getName(): ?string {
+            return $this->name;
         }
 
-        public function getDescripcion() {
-            return $this->descripcion;
+        public function getDescription(): ?string {
+            return $this->description;
         }
 
-        public function getPrecio() {
-            return $this->precio;
+        public function getPrice(): ?float {
+            return $this->price;
         }
 
-        public function getStock() {
+        public function getStock(): ?int {
             return $this->stock;
         }
 
-        public function getImagen() {
-            return $this->imagen;
+        public function getImage(): ?string {
+            return $this->image;
         }
 
-        public function getEstado() {
-            return $this->estado;
+        public function getStatus(): ?string {
+            return $this->status;
         }
 
-        public function getCategoriaNombre() {
-            return $this->categoriaNombre;
+        public function getCategoryName(): ?string {
+            return $this->category_name;
         }
 
-        public function getSubcategoriaNombre() {
-            return $this->subcategoriaNombre;
+        public function getSubcategoryName(): ?string {
+            return $this->subcategory_name;
         }
     }
 
-    // Obtener productos con paginación y ordenación
-    function obtenerProductos($con, $pagina, $resultadosPP, $orden, $tipoOrden) {
+    //Fetches products with pagination, sorting, and mapping to Product class
+    function getProducts(PDO $db, int $page, int $perPage, string $sortBy, string $sortDir): array {
 
-        $inicio = ($pagina - 1) * $resultadosPP;
+        // Calculate the offset for SQL pagination
+        $offset = ($page - 1) * $perPage;
 
-        // Columnas permitidas para ordenar
-        $columnasPermitidas = ["p.id", "p.nombre", "p.precio", "p.stock", "c.nombre", "s.nombre"];
-        if (!in_array($orden, $columnasPermitidas)) $orden = "p.id";
-        $tipoOrden = strtoupper($tipoOrden) === "DESC" ? "DESC" : "ASC";
+        // White-list mapping parameter keys to avoid SQL Injection via ORDER BY
+        $allowedColumns = [
+            "id" => "p.id",
+            "name" => "p.nombre",
+            "price" => "p.precio",
+            "stock" => "p.stock",
+            "category_name" => "c.nombre",
+            "subcategory_name" => "s.nombre"
+        ];
+        
+        // Fallback to safe defaults if parameters are invalid
+        $orderField = $allowedColumns[$sortBy] ?? "p.id";
+        $sortDir = strtoupper($sortDir) === "DESC" ? "DESC" : "ASC";
 
-        $sql = $con->prepare("SELECT p.id, p.id_categoria, p.id_subcategoria, p.nombre, p.descripcion, p.precio, p.stock, p.imagen, p.estado, c.nombre AS categoriaNombre, 
-                              s.nombre AS subcategoriaNombre FROM productos p LEFT JOIN categorias c ON p.id_categoria = c.id LEFT JOIN subcategorias s ON p.id_subcategoria = s.id
-                              ORDER BY $orden $tipoOrden LIMIT :inicio, :resultados");
+        // Clean SQL query with aliases to hydrate the Product class seamlessly
+        $sql = "SELECT p.id, p.id_categoria AS category_id, p.id_subcategoria AS subcategory_id, p.nombre AS name, p.descripcion AS description, p.precio AS price, 
+                p.stock AS stock, p.imagen AS image, p.estado AS status, c.nombre AS category_name, s.nombre AS subcategory_name FROM productos p 
+                LEFT JOIN categorias c ON p.id_categoria = c.id LEFT JOIN subcategorias s ON p.id_subcategoria = s.id ORDER BY $orderField $sortDir LIMIT :offset, :limit";
 
-        $sql->bindParam(":inicio", $inicio, PDO::PARAM_INT);
-        $sql->bindParam(":resultados", $resultadosPP, PDO::PARAM_INT);
-        $sql->execute();
+        $stmt = $db->prepare($sql);
 
-        $sql->setFetchMode(PDO::FETCH_CLASS, "Producto");
-        return $sql->fetchAll();
+        // Bind variables to ensure correct integer hydration for limits
+        $stmt->bindValue(":offset", $offset, PDO::PARAM_INT);
+        $stmt->bindValue(":limit", $perPage, PDO::PARAM_INT);
+        $stmt->execute();
+
+        // Direct OOP Mapping
+        $stmt->setFetchMode(PDO::FETCH_CLASS, "Product");
+        return $stmt->fetchAll();
     }
 
 ?>

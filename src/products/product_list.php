@@ -1,13 +1,17 @@
 <?php
 
-    require_once "../utilidades/conectar_db.php";
-    require_once "Producto.php";
-    $con = conectar();
-    session_start();
+    // Session Management
+    if (session_status() === PHP_SESSION_NONE) {
+        session_start();
+    }
 
-    // Acceso permitido: administrador y empleado
+    require_once __DIR__ . "/../utils/Database.php";
+    require_once __DIR__ . "/Product.php";
+    $db = Database::getConnection();
+
+    // Restrict access: only administrators or employees can view this page
     if (!isset($_SESSION["rol"]) || ($_SESSION["rol"] !== "administrador" && $_SESSION["rol"] !== "empleado")) {
-        header("Location: ../index.php?acceso=denegado");
+        header("Location: /index.php?unauthorized_access=1");
         exit;
     }
 
@@ -21,106 +25,117 @@
     <title>Consulta de productos</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
-    <link rel="stylesheet" href="../estilos.css">
-    <link rel="icon" type="image/x-icon" href="../assets/logos/jtech-favicon.ico"/>
+    <link rel="stylesheet" href="/assets/css/style.css">
+    <link rel="icon" type="image/x-icon" href="/assets/brand/jtech-favicon.ico"/>
 </head>
 <body>
     <div class="jtech-bg d-flex justify-content-center align-items-start py-5">
         <div class="jtech-card-wide p-4 w-100">
             <h2 class="text-center fw-bold mb-4">Gestión de Productos</h2>
 
-            <!-- Mensajes -->
+            <!-- Messages -->
             <div class="mb-3">
                 <?php
-                    if (isset($_GET["nombreE"])) {
-                        $nombreE = htmlspecialchars($_GET["nombreE"]);
-                        echo "<p class='alert alert-success'>El producto <b>$nombreE</b> ha sido modificado correctamente.</p>";
+                    // Translated GET parameters
+                    if (isset($_GET["updated_product"])) {
+                        $updatedProduct = htmlspecialchars($_GET["updated_product"]);
+                        echo "<p class='alert alert-success'>El producto <b>$updatedProduct</b> ha sido modificado correctamente.</p>";
                     }
-                    if (isset($_GET["nombreN"])) {
-                        $nombreN = htmlspecialchars($_GET["nombreN"]);
-                        echo "<p class='alert alert-success'>El producto <b>$nombreN</b> se ha creado correctamente.</p>";
+                    if (isset($_GET["created_product"])) {
+                        $createdProduct = htmlspecialchars($_GET["created_product"]);
+                        echo "<p class='alert alert-success'>El producto <b>$createdProduct</b> se ha creado correctamente.</p>";
                     }
-                    if (isset($_GET["nombreD"])) {
-                        $nombreD = htmlspecialchars($_GET["nombreD"]);
-                        echo "<p class='alert alert-success'>El producto <b>$nombreD</b> se ha desactivado correctamente.</p>";
+                    if (isset($_GET["deleted_product"])) {
+                        $deletedProduct = htmlspecialchars($_GET["deleted_product"]);
+                        echo "<p class='alert alert-success'>El producto <b>$deletedProduct</b> se ha desactivado correctamente.</p>";
                     }
                 ?>
             </div>
 
-            <!-- Buscador -->
-            <form method="get" action="productoConsulta.php" class="mb-4 jtech-search mx-auto">
+            <form method="get" action="/products/product_list.php" class="mb-4 jtech-search mx-auto">
                 <div class="input-group">
-                    <input type="text" name="buscar" class="form-control" placeholder="Buscar por nombre o categoria" autocomplete="off"
-                           value="<?= isset($_GET['buscar']) ? htmlspecialchars($_GET['buscar']) : '' ?>">
+                    <input type="text" name="search" class="form-control" placeholder="Buscar por nombre o categoria" autocomplete="off"
+                           value="<?= isset($_GET['search']) ? htmlspecialchars($_GET['search']) : '' ?>">
                     <button class="btn btn-jtech fw-semibold" type="submit">Buscar</button>
                 </div>
             </form>
 
             <?php
 
-                // Configuración de paginación y ordenación
-                $pagina = isset($_GET["pagina"]) ? (int)$_GET["pagina"] : 1;
-                $resultadosPP = 5;
+                // Pagination and sorting configuration
+                $page = isset($_GET["page"]) ? (int)$_GET["page"] : 1;
+                $perPage = 5;
 
-                $columnasPermitidas = ["p.id", "p.nombre", "p.precio", "p.stock", "c.nombre", "s.nombre", "p.estado"];
-                $orden = $_GET["orden"] ?? "p.nombre";
-                if (!in_array($orden, $columnasPermitidas)) $orden = "p.nombre";
+                // White-list mapping for sorting
+                $allowedColumns = [
+                    "id" => "p.id",
+                    "name" => "p.nombre",
+                    "price" => "p.precio",
+                    "stock" => "p.stock",
+                    "category_name" => "c.nombre",
+                    "subcategory_name" => "s.nombre",
+                    "status" => "p.estado"
+                ];
 
-                $tipoOrden = strtoupper($_GET["tipoOrden"] ?? "ASC");
-                if (!in_array($tipoOrden, ["ASC", "DESC"])) $tipoOrden = "ASC";
+                $sortBy = $_GET["sort_by"] ?? "name";
+                $orderField = $allowedColumns[$sortBy] ?? "p.nombre";
 
-                // Si hay búsqueda
-                if (isset($_GET["buscar"]) && trim($_GET["buscar"]) !== "") {
+                $sortDir = strtoupper($_GET["sort_dir"] ?? "ASC");
+                if (!in_array($sortDir, ["ASC", "DESC"])) $sortDir = "ASC";
 
-                    $busqueda = "%" . trim($_GET["buscar"]) . "%";
+                // If search is active, apply filter + sort + pagination
+                if (isset($_GET["search"]) && trim($_GET["search"]) !== "") {
 
-                    // Contar resultados filtrados
-                    $countQuery = $con->prepare("SELECT COUNT(*) AS total FROM productos p LEFT JOIN categorias c ON p.id_categoria = c.id
-                                                 LEFT JOIN subcategorias s ON p.id_subcategoria = s.id WHERE (p.nombre LIKE :busqueda OR c.nombre LIKE :busqueda)");
-                    $countQuery->execute([":busqueda" => $busqueda]);
-                    $productosTotal = $countQuery->fetch()["total"];
+                    $searchTerm = "%" . trim($_GET["search"]) . "%";
 
-                    $paginasTotal = ceil($productosTotal / $resultadosPP);
-                    $inicio = ($pagina - 1) * $resultadosPP;
+                    // Count filtered results
+                    $countQuery = $db->prepare("SELECT COUNT(*) AS total FROM productos p LEFT JOIN categorias c ON p.id_categoria = c.id
+                                                LEFT JOIN subcategorias s ON p.id_subcategoria = s.id WHERE (p.nombre LIKE :search OR c.nombre LIKE :search)");
+                    $countQuery->execute([":search" => $searchTerm]);
+                    $totalProducts = $countQuery->fetch(PDO::FETCH_ASSOC)["total"];
 
-                    // Obtener resultados filtrados
-                    $query = $con->prepare("SELECT p.id, p.nombre, p.descripcion, p.precio, p.stock, p.imagen, p.estado, c.nombre AS categoriaNombre, s.nombre AS subcategoriaNombre
-                                            FROM productos p LEFT JOIN categorias c ON p.id_categoria = c.id LEFT JOIN subcategorias s ON p.id_subcategoria = s.id 
-                                            WHERE (p.nombre LIKE :busqueda OR c.nombre LIKE :busqueda) ORDER BY $orden $tipoOrden LIMIT :inicio, :resultados");
+                    $totalPages = ceil($totalProducts / $perPage);
+                    $offset = ($page - 1) * $perPage;
 
-                    $query->bindValue(":busqueda", $busqueda, PDO::PARAM_STR);
-                    $query->bindValue(":inicio", $inicio, PDO::PARAM_INT);
-                    $query->bindValue(":resultados", $resultadosPP, PDO::PARAM_INT);
+                    // Fetch filtered results with exact aliases for the Product class
+                    $query = $db->prepare("SELECT p.id, p.id_categoria AS category_id, p.id_subcategoria AS subcategory_id, p.nombre AS name, p.descripcion AS description, 
+                                           p.precio AS price, p.stock AS stock, p.imagen AS image, p.estado AS status, c.nombre AS category_name, s.nombre AS subcategory_name
+                                           FROM productos p LEFT JOIN categorias c ON p.id_categoria = c.id LEFT JOIN subcategorias s ON p.id_subcategoria = s.id 
+                                           WHERE (p.nombre LIKE :search OR c.nombre LIKE :search) ORDER BY $orderField $sortDir LIMIT :offset, :limit");
+
+                    $query->bindValue(":search", $searchTerm, PDO::PARAM_STR);
+                    $query->bindValue(":offset", $offset, PDO::PARAM_INT);
+                    $query->bindValue(":limit", $perPage, PDO::PARAM_INT);
                     $query->execute();
 
-                    $query->setFetchMode(PDO::FETCH_CLASS, "Producto");
-                    $productos = $query->fetchAll();
+                    $query->setFetchMode(PDO::FETCH_CLASS, "Product");
+                    $products = $query->fetchAll();
 
                 } else {
 
-                    // Consulta normal
-                    $productos = obtenerProductos($con, $pagina, $resultadosPP, $orden, $tipoOrden);
+                    // Normal fetch using standard function
+                    $products = getProducts($db, $page, $perPage, $sortBy, $sortDir);
 
-                    $query = $con->prepare("SELECT COUNT(*) AS total FROM productos");
-                    $query->execute();
-                    $productosTotal = $query->fetch()["total"];
+                    $countQuery = $db->query("SELECT COUNT(*) AS total FROM productos");
+                    $totalProducts = $countQuery->fetch(PDO::FETCH_ASSOC)["total"];
 
-                    $paginasTotal = ceil($productosTotal / $resultadosPP);
+                    $totalPages = ceil($totalProducts / $perPage);
                 }
 
-                // Iconos de ordenación
-                function iconoOrden($col, $orden, $tipoOrden) {
-                    if ($col !== $orden) return '<i class="bi bi-arrow-down-up"></i>';
-                    return $tipoOrden === "ASC"
+                // Sorting icons
+                function sortIcon(string $col, string $currentSortBy, string $currentSortDir): string {
+                    if ($col !== $currentSortBy) return '<i class="bi bi-arrow-down-up"></i>';
+                    return $currentSortDir === "ASC"
                         ? '<i class="bi bi-arrow-up"></i>'
                         : '<i class="bi bi-arrow-down"></i>';
                 }
 
-                function urlOrden($col, $tipoOrden) {
-                    $nuevoTipo = $tipoOrden === "ASC" ? "DESC" : "ASC";
-                    $url = "productoConsulta.php?orden=$col&tipoOrden=$nuevoTipo";
-                    if (isset($_GET["buscar"])) {
-                        $url .= "&buscar=" . urlencode($_GET["buscar"]);
+                // Sorting URL builder
+                function sortUrl(string $col, string $currentSortDir): string {
+                    $newDir = $currentSortDir === "ASC" ? "DESC" : "ASC";
+                    $url = "/products/product_list.php?sort_by=$col&sort_dir=$newDir";
+                    if (isset($_GET["search"])) {
+                        $url .= "&search=" . urlencode($_GET["search"]);
                     }
                     return $url;
                 }
@@ -131,13 +146,13 @@
                 <table class="jtech-table align-middle text-center mx-auto">
                     <thead>
                         <tr>
-                            <th><a href="<?= urlOrden('p.id', $tipoOrden) ?>">ID <?= iconoOrden('p.id', $orden, $tipoOrden) ?></a></th>
-                            <th><a href="<?= urlOrden('p.nombre', $tipoOrden) ?>">Nombre <?= iconoOrden('p.nombre', $orden, $tipoOrden) ?></a></th>
-                            <th><a href="<?= urlOrden('c.nombre', $tipoOrden) ?>">Categoría <?= iconoOrden('c.nombre', $orden, $tipoOrden) ?></a></th>
-                            <th><a href="<?= urlOrden('s.nombre', $tipoOrden) ?>">Subcategoría <?= iconoOrden('s.nombre', $orden, $tipoOrden) ?></a></th>
-                            <th><a href="<?= urlOrden('p.precio', $tipoOrden) ?>">Precio <?= iconoOrden('p.precio', $orden, $tipoOrden) ?></a></th>
-                            <th><a href="<?= urlOrden('p.stock', $tipoOrden) ?>">Stock <?= iconoOrden('p.stock', $orden, $tipoOrden) ?></a></th>
-                            <th><a href="<?= urlOrden('p.estado', $tipoOrden) ?>">Estado <?= iconoOrden('p.estado', $orden, $tipoOrden) ?></a></th>
+                            <th><a href="<?= sortUrl('id', $sortDir) ?>">ID <?= sortIcon('id', $sortBy, $sortDir) ?></a></th>
+                            <th><a href="<?= sortUrl('name', $sortDir) ?>">Nombre <?= sortIcon('name', $sortBy, $sortDir) ?></a></th>
+                            <th><a href="<?= sortUrl('category_name', $sortDir) ?>">Categoría <?= sortIcon('category_name', $sortBy, $sortDir) ?></a></th>
+                            <th><a href="<?= sortUrl('subcategory_name', $sortDir) ?>">Subcategoría <?= sortIcon('subcategory_name', $sortBy, $sortDir) ?></a></th>
+                            <th><a href="<?= sortUrl('price', $sortDir) ?>">Precio <?= sortIcon('price', $sortBy, $sortDir) ?></a></th>
+                            <th><a href="<?= sortUrl('stock', $sortDir) ?>">Stock <?= sortIcon('stock', $sortBy, $sortDir) ?></a></th>
+                            <th><a href="<?= sortUrl('status', $sortDir) ?>">Estado <?= sortIcon('status', $sortBy, $sortDir) ?></a></th>
                             <th>Imagen</th>
                             <th>Editar</th>
                             <th>Borrar</th>
@@ -147,28 +162,32 @@
                     <tbody>
                         <?php
 
-                            if (empty($productos)) {
+                            if (empty($products)) {
                                 echo "<tr><td colspan='10' class='text-center py-3 text-muted'>
                                           No se encontraron productos
                                       </td></tr>";
                             } else {
-                                foreach ($productos as $p) {
+                                foreach ($products as $p) {
                                     echo "<tr>";
-                                    echo "<td>" . htmlspecialchars($p->getId()) . "</td>";
-                                    echo "<td>" . htmlspecialchars($p->getNombre()) . "</td>";
-                                    echo "<td>" . htmlspecialchars($p->getCategoriaNombre()) . "</td>";
-                                    echo "<td>" . htmlspecialchars($p->getSubcategoriaNombre()) . "</td>";
-                                    echo "<td>" . htmlspecialchars($p->getPrecio()) . " €</td>";
-                                    echo "<td>" . htmlspecialchars($p->getStock()) . "</td>";
-                                    echo "<td>" . htmlspecialchars($p->getEstado()) . "</td>";
-                                    echo "<td><img src='" . htmlspecialchars($p->getImagen()) . "' class='img-thumbnail' style='max-height: 120px;'></td>";
+                                    echo "<td>" . htmlspecialchars((string)$p->getId()) . "</td>";
+                                    echo "<td>" . htmlspecialchars((string)$p->getName()) . "</td>";
+                                    echo "<td>" . htmlspecialchars((string)$p->getCategoryName()) . "</td>";
+                                    echo "<td>" . htmlspecialchars((string)$p->getSubcategoryName()) . "</td>";
+                                    echo "<td>" . htmlspecialchars((string)$p->getPrice()) . " €</td>";
+                                    echo "<td>" . htmlspecialchars((string)$p->getStock()) . "</td>";
+                                    echo "<td>" . htmlspecialchars((string)$p->getStatus()) . "</td>";
+                                    
+                                    // Ensure absolute path rendering for the image
+                                    echo "<td><img src='/" . htmlspecialchars((string)$p->getImage()) . "' class='img-thumbnail' style='max-height: 120px;'></td>";
 
-                                    echo "<td><a class='text-jtech fw-bold' href='productoEditar.php?id=" . $p->getId() . "'>
+                                    // Edit route absolute
+                                    echo "<td><a class='text-jtech fw-bold' href='/products/product_edit.php?id=" . $p->getId() . "'>
                                               <i class='bi bi-pencil-square'></i>
                                           </a></td>";
 
                                     if ($_SESSION["rol"] === "administrador") {
-                                        echo "<td><a class='text-danger fw-bold' href='productoEliminar.php?id=" . $p->getId() . "'>
+                                        // Delete route absolute
+                                        echo "<td><a class='text-danger fw-bold' href='/products/product_delete.php?id=" . $p->getId() . "'>
                                                 <i class='bi bi-trash-fill'></i>
                                               </a></td>";
                                     } else {
@@ -184,16 +203,16 @@
                 </table>
             </div>
 
-            <!-- Paginación -->
+            <!-- Pagination -->
             <div class="text-center mt-4">
                 <?php
-                    for ($i = 1; $i <= $paginasTotal; $i++) {
-                        $url = "productoConsulta.php?pagina=$i&orden=$orden&tipoOrden=$tipoOrden";
-                        if (isset($_GET["buscar"])) {
-                            $url .= "&buscar=" . urlencode($_GET["buscar"]);
+                    for ($i = 1; $i <= $totalPages; $i++) {
+                        $url = "/products/product_list.php?page=$i&sort_by=$sortBy&sort_dir=$sortDir";
+                        if (isset($_GET["search"])) {
+                            $url .= "&search=" . urlencode($_GET["search"]);
                         }
 
-                        if ($i == $pagina) {
+                        if ($i == $page) {
                             echo "<button class='btn btn-jtech mx-1'>$i</button>";
                         } else {
                             echo "<a href='$url' class='btn btn-outline-jtech mx-1'>$i</a>";
@@ -203,11 +222,11 @@
             </div>
 
             <div class="text-center mt-4 d-flex justify-content-center">
-                <a href="productoCrear.php" class="btn btn-jtech">Nuevo producto</a>
+                <a href="/products/product_create.php" class="btn btn-jtech">Nuevo producto</a>
             </div>
 
             <div class="text-center text-lg-start mt-3">
-                <a href="../utilidades/panelAdministrador.php" class="btn btn-outline-secondary">Volver</a>
+                <a href="/utils/admin_panel.php" class="btn btn-outline-secondary">Volver</a>
             </div>
 
         </div>

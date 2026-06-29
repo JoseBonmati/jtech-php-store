@@ -1,182 +1,199 @@
 <?php 
 
-    require_once "../utilidades/conectar_db.php";
-    $con = conectar();
-    session_start();
+    // Session Management
+    if (session_status() === PHP_SESSION_NONE) {
+        session_start();
+    }
 
-    // Administradores y empleados pueden editar productos
+    // Database Connection
+    require_once __DIR__ . "/../utils/Database.php";
+    $db = Database::getConnection();
+
+    // Restrict access: only administrators or employees can edit products
     if (!isset($_SESSION["rol"]) || ($_SESSION["rol"] !== "administrador" && $_SESSION["rol"] !== "empleado")) {
-        header("Location: ../index.php?acceso=denegado");
+        header("Location: /index.php?unauthorized_access=1");
         exit;
     }
 
-    // Array de errores
-    $mensajesError = [];
+    // Array to store server validation error messages
+    $errorMessages = [];
 
-    // Obtener ID del producto
-    if (isset($_POST["enviar"])) {
+    // Retrieve Product ID securely
+    if (isset($_POST["edit_submit"]) || isset($_POST["toggle_status"])) {
         $id = (int) ($_POST["id"] ?? 0);
     } else {
         $id = (int) ($_GET["id"] ?? 0);
     }
 
-    // Procesar formulario
-    if (isset($_POST["enviar"])) {
-        $nombre = trim($_POST["nombre"] ?? "");
-        $descripcion = trim($_POST["descripcion"] ?? "");
-        $precio = trim($_POST["precio"] ?? "");
+    // Process product activation/deactivation toggle
+    if (isset($_POST["toggle_status"])) {
+        $currentStatus = $_POST["current_status"] ?? "activo";
+        $newStatus = ($currentStatus === "activo") ? "inactivo" : "activo";
+
+        $updateStatusStmt = $db->prepare("UPDATE productos SET estado = :status WHERE id = :id");
+        $updateStatusStmt->execute([
+            ":status" => $newStatus,
+            ":id" => $id
+        ]);
+
+        header("Location: /products/product_edit.php?id=" . urlencode((string)$id) . "&status_toggled=1");
+        exit;
+    }
+
+    // Process form submission for editing product data
+    if (isset($_POST["edit_submit"])) {
+        $name = trim($_POST["name"] ?? "");
+        $description = trim($_POST["description"] ?? "");
+        $price = trim($_POST["price"] ?? "");
         $stock = trim($_POST["stock"] ?? "");
-        $categoriaId = trim($_POST["categoriaId"] ?? "");
-        $subcategoriaId = trim($_POST["subcategoriaId"] ?? "");
+        $categoryId = trim($_POST["category_id"] ?? "");
+        $subcategoryId = trim($_POST["subcategory_id"] ?? "");
 
-        // Validaciones
-        if ($nombre === "") $mensajesError[] = "El campo Nombre no puede estar vacío.";
-        if ($descripcion === "") $mensajesError[] = "El campo Descripción no puede estar vacío.";
+        // Input Validations
+        if ($name === "") $errorMessages[] = "El campo Nombre no puede estar vacío.";
+        if ($description === "") $errorMessages[] = "El campo Descripción no puede estar vacío.";
 
-        if ($precio === "") {
-            $mensajesError[] = "El campo Precio no puede estar vacío.";
-        } elseif (!preg_match("/^[0-9]*\.?[0-9]+$/", $precio)) {
-            $mensajesError[] = "El formato del precio no es válido.";
+        if ($price === "") {
+            $errorMessages[] = "El campo Precio no puede estar vacío.";
+        } elseif (!preg_match("/^[0-9]*\.?[0-9]+$/", $price)) {
+            $errorMessages[] = "El formato del precio no es válido.";
         }
 
         if ($stock === "") {
-            $mensajesError[] = "El campo Stock no puede estar vacío.";
+            $errorMessages[] = "El campo Stock no puede estar vacío.";
         } elseif (!ctype_digit($stock)) {
-            $mensajesError[] = "El stock debe ser un número entero.";
+            $errorMessages[] = "El stock debe ser un número entero.";
         }
 
-        if ($categoriaId === "") $mensajesError[] = "Debe seleccionar una categoría.";
-        if ($subcategoriaId === "") $mensajesError[] = "Debe seleccionar una subcategoría.";
+        if ($categoryId === "") $errorMessages[] = "Debe seleccionar una categoría.";
+        if ($subcategoryId === "") $errorMessages[] = "Debe seleccionar una subcategoría.";
 
-        // Validar que la subcategoría pertenece a la categoría seleccionada
-        if ($categoriaId !== "" && $subcategoriaId !== "") {
-            $checkSub = $con->prepare("SELECT COUNT(*) FROM subcategorias WHERE id = :sub AND id_categoria = :cat");
-            $checkSub->execute([
-                ":sub" => $subcategoriaId,
-                ":cat" => $categoriaId
+        // Validate that the selected subcategory belongs to the chosen parent category
+        if ($categoryId !== "" && $subcategoryId !== "") {
+            $checkSubStmt = $db->prepare("SELECT COUNT(*) FROM subcategorias WHERE id = :sub AND id_categoria = :cat");
+            $checkSubStmt->execute([
+                ":sub" => $subcategoryId,
+                ":cat" => $categoryId
             ]);
 
-            if ($checkSub->fetchColumn() == 0) {
-                $mensajesError[] = "La subcategoría seleccionada no pertenece a la categoría elegida.";
+            if ($checkSubStmt->fetchColumn() == 0) {
+                $errorMessages[] = "La subcategoría seleccionada no pertenece a la categoría elegida.";
             }
         }
 
-        // Validación de imagen
-        $newImageUploaded = !empty($_FILES["imagen"]["tmp_name"]);
+        // Image validation (Only if a new image is uploaded)
+        $newImageUploaded = !empty($_FILES["image"]["tmp_name"]);
         if ($newImageUploaded) {
-            $file = $_FILES["imagen"];
-            $temp_name = $file["tmp_name"];
-            $real_name = $file["name"];
+            $file = $_FILES["image"];
+            $tempName = $file["tmp_name"];
+            $realName = $file["name"];
             $size = $file["size"];
 
-            $max_size = 2 * 1024 * 1024;
-            if ($size > $max_size) $mensajesError[] = "La imagen es demasiado grande (máx 2MB).";
+            $maxSize = 2 * 1024 * 1024;
+            if ($size > $maxSize) $errorMessages[] = "La imagen es demasiado grande (máx 2MB).";
 
-            $img_info = getimagesize($temp_name);
-            if (!$img_info) {
-                $mensajesError[] = "El archivo no es una imagen válida.";
+            $imgInfo = getimagesize($tempName);
+            if (!$imgInfo) {
+                $errorMessages[] = "El archivo no es una imagen válida.";
             } else {
-                $width = $img_info[0];
-                $height = $img_info[1];
-                $ext = strtolower(pathinfo($real_name, PATHINFO_EXTENSION));
+                $width = $imgInfo[0];
+                $height = $imgInfo[1];
+                $ext = strtolower(pathinfo($realName, PATHINFO_EXTENSION));
 
                 if (!in_array($ext, ["jpg","jpeg","png"])) {
-                    $mensajesError[] = "Formato no permitido (solo jpg, jpeg, png).";
+                    $errorMessages[] = "Formato no permitido (solo jpg, jpeg, png).";
                 }
 
                 if ($width > 600 || $height > 700) {
-                    $mensajesError[] = "La imagen no puede superar 600x700 píxeles.";
+                    $errorMessages[] = "La imagen no puede superar 600x700 píxeles.";
                 }
 
-                $destinationC = "../assets/imagenes/" . basename($real_name);
-                $query = $con->prepare("SELECT id FROM productos WHERE imagen = :imagen");
-                $query->execute([":imagen" => $destinationC]);
-                if ($query->fetch()) {
-                    $mensajesError[] = "Ya existe una imagen con ese nombre.";
+                // Standardized DB image path for absolute rendering
+                $dbImagePath = "assets/imagenes/" . basename($realName);
+                
+                $checkImgStmt = $db->prepare("SELECT id FROM productos WHERE imagen = :image AND id != :id");
+                $checkImgStmt->execute([
+                    ":image" => $dbImagePath,
+                    ":id" => $id
+                ]);
+                if ($checkImgStmt->fetch()) {
+                    $errorMessages[] = "Ya existe una imagen con ese nombre.";
                 }
             }
         }
 
-        // Actualizar si no hay errores
-        if (empty($mensajesError)) {
+        // Proceed with update if there are no validation errors
+        if (empty($errorMessages)) {
 
-            $sql = "UPDATE productos SET nombre = :nombre, descripcion = :descripcion, precio = :precio, stock = :stock, id_categoria = :categoria, id_subcategoria = :subcategoria";
+            $sql = "UPDATE productos SET nombre = :name, descripcion = :description, precio = :price, stock = :stock, id_categoria = :category, id_subcategoria = :subcategory";
 
             $params = [
-                ":nombre" => $nombre,
-                ":descripcion" => $descripcion,
-                ":precio" => $precio,
+                ":name" => $name,
+                ":description" => $description,
+                ":price" => $price,
                 ":stock" => $stock,
-                ":categoria" => $categoriaId,
-                ":subcategoria" => $subcategoriaId,
+                ":category" => $categoryId,
+                ":subcategory" => $subcategoryId,
                 ":id" => $id
             ];
 
             if ($newImageUploaded) {
-                $tmpImage = $_FILES["imagen"]["tmp_name"];
-                $imgName = $_FILES["imagen"]["name"];
-                $destination = "../assets/imagenes/" . $imgName;
+                $tmpImage = $_FILES["image"]["tmp_name"];
+                $imgName = basename($_FILES["image"]["name"]);
+                
+                $dbImagePath = "assets/imagenes/" . $imgName;
+                $serverPath = __DIR__ . "/../" . $dbImagePath;
 
-                // Delete old image
-                $oldQuery = $con->prepare("SELECT imagen FROM productos WHERE id = :id");
+                // Delete old image dynamically from the filesystem
+                $oldQuery = $db->prepare("SELECT imagen AS image FROM productos WHERE id = :id");
                 $oldQuery->execute([":id" => $id]);
-                if ($oldRow = $oldQuery->fetch()) {
-                    if (!empty($oldRow["imagen"]) && file_exists($oldRow["imagen"])) {
-                        unlink($oldRow["imagen"]);
+                if ($oldRow = $oldQuery->fetch(PDO::FETCH_ASSOC)) {
+                    if (!empty($oldRow["image"])) {
+                        $oldServerPath = __DIR__ . "/../" . $oldRow["image"];
+                        if (file_exists($oldServerPath) && is_file($oldServerPath)) {
+                            unlink($oldServerPath);
+                        }
                     }
                 }
 
-                if (move_uploaded_file($tmpImage, $destination)) {
-                    $sql .= ", imagen = :imagen";
-                    $params[":imagen"] = $destination;
+                // Move new image to the unified directory
+                if (move_uploaded_file($tmpImage, $serverPath)) {
+                    $sql .= ", imagen = :image";
+                    $params[":image"] = $dbImagePath;
                 } else {
-                    $mensajesError[] = "Error inesperado al subir la imagen.";
+                    $errorMessages[] = "Error inesperado al guardar la imagen en el servidor.";
                 }
             }
 
             $sql .= " WHERE id = :id";
 
-            if (empty($mensajesError)) {
-                $update = $con->prepare($sql);
-                $update->execute($params);
+            if (empty($errorMessages)) {
+                $updateStmt = $db->prepare($sql);
+                $updateStmt->execute($params);
 
-                if ($update->rowCount() > 0) {
-                    header("Location: productoConsulta.php?nombreE=" . urlencode($nombre));
+                if ($updateStmt->rowCount() > 0 || $newImageUploaded) {
+                    header("Location: /products/product_list.php?updated_product=" . urlencode($name));
                     exit;
                 } else {
-                    $mensajesError[] = "No se ha podido actualizar el producto.";
+                    $errorMessages[] = "No se ha podido actualizar el producto o no hubo cambios reales.";
                 }
             }
         }
     }
 
-    // Activar / desactivar producto
-    if (isset($_POST["cambiarEstado"])) {
-        $id = (int)$_POST["id"];
-        $nuevoEstado = $_POST["estado"] === "activo" ? "inactivo" : "activo";
+    // Fetch product data with aliases for straightforward rendering
+    $prodQuery = $db->prepare("SELECT id, nombre AS name, descripcion AS description, precio AS price, stock, id_categoria AS category_id, id_subcategoria AS subcategory_id, 
+                               imagen AS image, estado AS status FROM productos WHERE id = :id");
+    $prodQuery->execute([":id" => $id]);
+    $product = $prodQuery->fetch(PDO::FETCH_ASSOC);
 
-        $updateEstado = $con->prepare("UPDATE productos SET estado = :estado WHERE id = :id");
-        $updateEstado->execute([
-            ":estado" => $nuevoEstado,
-            ":id" => $id
-        ]);
-
-        header("Location: productoEditar.php?id=" . urlencode($id) . "&estadoCambiado=" . urlencode($nuevoEstado));
-        exit;
+    if (!$product) {
+        $errorMessages[] = "No se ha encontrado el producto.";
     }
 
-    // Obtener datos del producto
-    $prod = $con->prepare("SELECT * FROM productos WHERE id = :id");
-    $prod->execute([":id" => $id]);
-    $producto = $prod->fetch();
-
-    if (!$producto) {
-        $mensajesError[] = "No se ha encontrado el producto.";
-    }
-
-    // Obtener categorías y subcategorías
-    $categorias = $con->query("SELECT id, nombre FROM categorias ORDER BY nombre ASC")->fetchAll(PDO::FETCH_ASSOC);
-    $subcategorias = $con->query("SELECT id, id_categoria, nombre FROM subcategorias ORDER BY nombre ASC")->fetchAll(PDO::FETCH_ASSOC);
+    // Fetch categories and subcategories with aliases
+    $categories = $db->query("SELECT id, nombre AS name FROM categorias ORDER BY nombre ASC")->fetchAll(PDO::FETCH_ASSOC);
+    $subcategories = $db->query("SELECT id, id_categoria AS category_id, nombre AS name FROM subcategorias ORDER BY nombre ASC")->fetchAll(PDO::FETCH_ASSOC);
 
 ?>
 
@@ -188,8 +205,8 @@
     <title>Editar producto</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
-    <link rel="stylesheet" href="../estilos.css">
-    <link rel="icon" type="image/x-icon" href="../assets/logos/jtech-favicon.ico"/>
+    <link rel="stylesheet" href="/assets/css/style.css">
+    <link rel="icon" type="image/x-icon" href="/assets/brand/jtech-favicon.ico"/>
 </head>
 <body>
     <div class="d-flex justify-content-center align-items-start jtech-bg">
@@ -198,48 +215,47 @@
 
             <div class="mb-3">
                 <?php
-                    if (isset($_GET["estadoCambiado"])) {
+                    if (isset($_GET["status_toggled"])) {
                         echo "<p class='alert alert-success mb-0'>Estado del producto cambiado.</p>";
                     }
-                    if (!empty($mensajesError)) {
-                        echo "<p class='alert alert-danger mb-0'>" . implode("<br>", $mensajesError) . "</p>";
+                    if (!empty($errorMessages)) {
+                        echo "<p class='alert alert-danger mb-0'>" . implode("<br>", $errorMessages) . "</p>";
                     }
                 ?>
             </div>
 
-            <?php if ($producto): ?>
+            <?php if ($product): ?>
 
-            <form method="post" enctype="multipart/form-data">
-
-                <input type="hidden" name="id" value="<?= $producto['id'] ?>">
+            <form method="post" action="/products/product_edit.php" enctype="multipart/form-data">
+                <input type="hidden" name="id" value="<?= htmlspecialchars((string)$product['id']) ?>">
 
                 <div class="mb-3">
                     <label class="form-label">Nombre</label>
-                    <input type="text" name="nombre" class="form-control jtech-input" maxlength="50" value="<?= htmlspecialchars($producto['nombre']) ?>">
+                    <input type="text" name="name" class="form-control jtech-input" maxlength="50" value="<?= htmlspecialchars($product['name']) ?>">
                 </div>
 
                 <div class="mb-3">
                     <label class="form-label">Descripción</label>
-                    <input type="text" name="descripcion" class="form-control jtech-input" value="<?= htmlspecialchars($producto['descripcion']) ?>">
+                    <input type="text" name="description" class="form-control jtech-input" value="<?= htmlspecialchars($product['description']) ?>">
                 </div>
 
                 <div class="mb-3">
                     <label class="form-label">Precio (€)</label>
-                    <input type="text" name="precio" class="form-control jtech-input" maxlength="10" value="<?= htmlspecialchars($producto['precio']) ?>">
+                    <input type="text" name="price" class="form-control jtech-input" maxlength="10" value="<?= htmlspecialchars((string)$product['price']) ?>">
                 </div>
 
                 <div class="mb-3">
                     <label class="form-label">Stock</label>
-                    <input type="number" name="stock" class="form-control jtech-input" value="<?= htmlspecialchars($producto['stock']) ?>">
+                    <input type="number" name="stock" class="form-control jtech-input" value="<?= htmlspecialchars((string)$product['stock']) ?>">
                 </div>
 
                 <div class="mb-3">
                     <label class="form-label">Categoría</label>
-                    <select name="categoriaId" id="categoriaId" class="form-select jtech-input">
+                    <select name="category_id" id="category_id" class="form-select jtech-input">
                         <option value="">-- Seleccione una categoría --</option>
-                        <?php foreach ($categorias as $c): ?>
-                            <option value="<?= $c['id'] ?>" <?= ($c['id'] == $producto['id_categoria']) ? 'selected' : '' ?>>
-                                <?= htmlspecialchars($c['nombre']) ?>
+                        <?php foreach ($categories as $c): ?>
+                            <option value="<?= htmlspecialchars((string)$c['id']) ?>" <?= ($c['id'] == $product['category_id']) ? 'selected' : '' ?>>
+                                <?= htmlspecialchars($c['name']) ?>
                             </option>
                         <?php endforeach; ?>
                     </select>
@@ -247,12 +263,12 @@
 
                 <div class="mb-3">
                     <label class="form-label">Subcategoría</label>
-                    <select name="subcategoriaId" id="subcategoriaId" class="form-select jtech-input">
+                    <select name="subcategory_id" id="subcategory_id" class="form-select jtech-input">
                         <option value="">-- Seleccione una subcategoría --</option>
-                        <?php foreach ($subcategorias as $s): ?>
-                            <option value="<?= $s['id'] ?>" data-cat="<?= $s['id_categoria'] ?>"
-                                <?= ($s['id'] == $producto['id_subcategoria']) ? 'selected' : '' ?>>
-                                <?= htmlspecialchars($s['nombre']) ?>
+                        <?php foreach ($subcategories as $s): ?>
+                            <option value="<?= htmlspecialchars((string)$s['id']) ?>" data-cat="<?= htmlspecialchars((string)$s['category_id']) ?>"
+                                <?= ($s['id'] == $product['subcategory_id']) ? 'selected' : '' ?>>
+                                <?= htmlspecialchars($s['name']) ?>
                             </option>
                         <?php endforeach; ?>
                     </select>
@@ -260,63 +276,63 @@
 
                 <div class="mb-3">
                     <label class="form-label">Imagen actual</label><br>
-                    <img src="<?= $producto['imagen'] ?>" class="img-thumbnail" style="max-height:150px;">
+                    <img src="/<?= htmlspecialchars($product['image']) ?>" class="img-thumbnail" style="max-height:150px;" alt="Current Product Image">
                 </div>
 
                 <div class="mb-3">
-                    <label class="form-label">Nueva imagen</label>
-                    <input type="file" name="imagen" class="form-control jtech-input" accept=".jpg,.jpeg,.png">
+                    <label class="form-label">Nueva imagen (Opcional)</label>
+                    <input type="file" name="image" class="form-control jtech-input" accept=".jpg,.jpeg,.png">
                 </div>
 
                 <div class="d-grid gap-3">
-
-                    <!-- Botón activar/desactivar -->
-                    <form method="post">
-                        <input type="hidden" name="id" value="<?= $producto['id'] ?>">
-                        <input type="hidden" name="estado" value="<?= $producto['estado'] ?>">
-
-                        <?php if ($producto['estado'] === "activo"): ?>
-                            <button type="submit" name="cambiarEstado" class="btn btn-danger fw-semibold">
-                                Desactivar producto
-                            </button>
-                        <?php else: ?>
-                            <button type="submit" name="cambiarEstado" class="btn btn-success fw-semibold">
-                                Activar producto
-                            </button>
-                        <?php endif; ?>
-                    </form>
-
-                    <button type="submit" name="enviar" class="btn btn-jtech fw-semibold">Guardar cambios</button>
+                    <button type="submit" name="edit_submit" class="btn btn-jtech fw-semibold">Guardar cambios</button>
                     <hr class="jtech-divider">
-                    <a href="productoConsulta.php" class="btn btn-outline-secondary">Volver</a>
+                    <a href="/products/product_list.php" class="btn btn-outline-secondary">Volver</a>
                 </div>
+            </form>
 
+            <form method="post" action="/products/product_edit.php" class="mt-3">
+                <input type="hidden" name="id" value="<?= htmlspecialchars((string)$product['id']) ?>">
+                <input type="hidden" name="current_status" value="<?= htmlspecialchars($product['status']) ?>">
+
+                <div class="d-grid gap-3">
+                    <?php if ($product['status'] === "activo"): ?>
+                        <button type="submit" name="toggle_status" class="btn btn-danger fw-semibold">
+                            Desactivar producto
+                        </button>
+                    <?php else: ?>
+                        <button type="submit" name="toggle_status" class="btn btn-success fw-semibold">
+                            Activar producto
+                        </button>
+                    <?php endif; ?>
+                </div>
             </form>
 
             <?php endif; ?>
         </div>
     </div>
 
-    <!-- Filtrar subcategorías -->
+    <!-- Filter subcategories -->
     <script>
-        const categoria = document.getElementById("categoriaId");
-        const subcategoria = document.getElementById("subcategoriaId");
+        const categorySelect = document.getElementById("category_id");
+        const subcategorySelect = document.getElementById("subcategory_id");
 
-        function filtrarSubcategorias() {
-            const cat = categoria.value;
+        function filterSubcategories() {
+            const catId = categorySelect.value;
 
-            for (let opt of subcategoria.options) {
-                if (!opt.dataset.cat) continue;
-                opt.hidden = opt.dataset.cat !== cat;
+            for (let opt of subcategorySelect.options) {
+                if (!opt.dataset.cat) continue; // Skip default option
+                opt.hidden = opt.dataset.cat !== catId;
             }
         }
 
-        categoria.addEventListener("change", () => {
-            filtrarSubcategorias();
-            subcategoria.value = "";
+        categorySelect.addEventListener("change", () => {
+            filterSubcategories();
+            subcategorySelect.value = "";
         });
 
-        filtrarSubcategorias();
+        // Initialize state on load
+        filterSubcategories();
     </script>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
