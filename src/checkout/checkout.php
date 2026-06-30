@@ -1,44 +1,50 @@
 <?php
 
-    require_once "../utilidades/conectar_db.php";
-    session_start();
+    // Session Management
+    if (session_status() === PHP_SESSION_NONE) {
+        session_start();
+    }
 
-    $con = conectar();
+    // Database Connection
+    require_once __DIR__ . "/../utils/Database.php";
+    $db = Database::getConnection();
 
-    // Comprobar login
+    // Check login status
     if (!isset($_SESSION["id"])) {
-        header("Location: ../index.php?acceso=1");
+        header("Location: /index.php?unauthorized_access=1");
         exit;
     }
 
-    $idUsuario = $_SESSION["id"];
+    $userId = $_SESSION["id"];
 
-    // Obtener datos del usuario
-    $sql = $con->prepare("SELECT nombre, telefono, direccion, localidad, provincia FROM usuarios WHERE id = :id");
-    $sql->execute([":id" => $idUsuario]);
-    $usuario = $sql->fetch(PDO::FETCH_ASSOC);
+    // Fetch user shipping details using English aliases
+    $userStmt = $db->prepare("SELECT nombre AS name, telefono AS phone, direccion AS address, localidad AS city, provincia AS province FROM usuarios WHERE id = :id");
+    $userStmt->execute([":id" => $userId]);
+    $user = $userStmt->fetch(PDO::FETCH_ASSOC);
 
-    if (!$usuario) {
-        header("Location: ../index.php?existe=1");
+    if (!$user) {
+        header("Location: /index.php?error=userNotFound");
         exit;
     }
 
-    $datosIncompletos = empty($usuario["direccion"]) || empty($usuario["localidad"]) || empty($usuario["provincia"]);
+    // Validate if mandatory shipping information is missing
+    $incompleteData = empty($user["address"]) || empty($user["city"]) || empty($user["province"]);
 
-    // Obtener carrito
-    $sql = $con->prepare("SELECT c.id, c.cantidad, p.nombre, p.precio, p.imagen FROM carrito c JOIN productos p ON c.id_producto = p.id WHERE c.id_usuario = :idUsuario");
-    $sql->execute([":idUsuario" => $idUsuario]);
-    $carrito = $sql->fetchAll(PDO::FETCH_ASSOC);
+    // Fetch current user cart items
+    $cartStmt = $db->prepare("SELECT c.id, c.cantidad AS quantity, p.nombre AS name, p.precio AS price, p.imagen AS image FROM carrito c 
+                              JOIN productos p ON c.id_producto = p.id WHERE c.id_usuario = :userId");
+    $cartStmt->execute([":userId" => $userId]);
+    $cartItems = $cartStmt->fetchAll(PDO::FETCH_ASSOC);
 
-    // Total
+    // Calculate cart total
     $total = 0;
-    foreach ($carrito as $item) {
-        $total += $item["precio"] * $item["cantidad"];
+    foreach ($cartItems as $item) {
+        $total += $item["price"] * $item["quantity"];
     }
 
-    // Fecha estimada
-    $inicio = date("d/m/Y", strtotime("+6 days"));
-    $fin = date("d/m/Y", strtotime("+11 days"));
+    // Estimated delivery dates calculation
+    $deliveryStart = date("d/m/Y", strtotime("+6 days"));
+    $deliveryEnd = date("d/m/Y", strtotime("+11 days"));
 
 ?>
 
@@ -50,8 +56,8 @@
     <title>Finalizar compra</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
-    <link rel="stylesheet" href="../estilos.css">
-    <link rel="icon" type="image/x-icon" href="../assets/logos/jtech-favicon.ico"/>
+    <link rel="stylesheet" href="/assets/css/style.css">
+    <link rel="icon" type="image/x-icon" href="/assets/brand/jtech-favicon.ico"/>
 </head>
 <body>
     <div class="container py-5">
@@ -62,36 +68,34 @@
                     <h3 class="fw-bold mb-3">Dirección de entrega</h3>
                         <div class="mb-3">
                             <?php
-
-                                if (isset($_GET["nombreE"]) && isset($_GET["emailE"])) {
-                                    $nombreE = htmlspecialchars($_GET["nombreE"]);
-                                    $emailE = htmlspecialchars($_GET["emailE"]);
-                                    echo "<p class='alert alert-success'>El usuario <b>$nombreE</b> con email <b>$emailE</b> ha sido modificado correctamente.</p>";
+                                if (isset($_GET["updated_name"]) && isset($_GET["updated_email"])) {
+                                    $updatedName = htmlspecialchars($_GET["updated_name"]);
+                                    $updatedEmail = htmlspecialchars($_GET["updated_email"]);
+                                    echo "<p class='alert alert-success'>El usuario <b>$updatedName</b> con email <b>$updatedEmail</b> ha sido modificado correctamente.</p>";
                                 }
-
                             ?>
                         </div>
                         <div class="d-flex justify-content-between align-items-start flex-wrap">
                             <div class="me-3">
-                                <?php if ($datosIncompletos): ?>
+                                <?php if ($incompleteData): ?>
                                     <div class="alert alert-warning mb-3">
                                         Faltan datos de envío. Por favor complétalos antes de continuar.
                                     </div>
                                 <?php else: ?>
                                     <p class="mb-1">
-                                        <strong><?= htmlspecialchars($usuario["nombre"]) ?></strong> - 
-                                        <strong><?= htmlspecialchars($usuario["telefono"]) ?></strong>
+                                        <strong><?= htmlspecialchars((string)$user["name"]) ?></strong> - 
+                                        <strong><?= htmlspecialchars((string)$user["phone"]) ?></strong>
                                     </p>
-                                    <p class="mb-1"><?= htmlspecialchars($usuario["direccion"]) ?></p>
+                                    <p class="mb-1"><?= htmlspecialchars((string)$user["address"]) ?></p>
                                     <p class="mb-3">
-                                        <?= htmlspecialchars($usuario["localidad"]) ?>, 
-                                        <?= htmlspecialchars($usuario["provincia"]) ?>
+                                        <?= htmlspecialchars((string)$user["city"]) ?>, 
+                                        <?= htmlspecialchars((string)$user["province"]) ?>
                                     </p>
                                 <?php endif; ?>
                             </div>
 
                             <div class="mt-2 mt-lg-0">
-                                <a href="../usuarios/usuarioEditar.php?id=<?= $idUsuario ?>&from=finalizar" class="btn btn-outline-jtech fw-semibold">Cambiar</a>
+                                <a href="/users/user_edit.php?id=<?= $userId ?>&from=checkout" class="btn btn-outline-jtech fw-semibold">Cambiar</a>
                             </div>
                         </div>
 
@@ -108,18 +112,18 @@
                 <div class="jtech-card-wide p-4 mb-4">
                     <h3 class="fw-bold mb-3">Detalles de los artículos</h3>
 
-                    <?php foreach ($carrito as $item): ?>
+                    <?php foreach ($cartItems as $item): ?>
                         <div class="d-flex align-items-center mb-3 border-bottom pb-2">
-                            <img src="../<?= $item['imagen'] ?>" class="jtech-cart-img me-3">
+                            <img src="/<?= htmlspecialchars($item['image']) ?>" class="jtech-cart-img me-3" alt="<?= htmlspecialchars($item['name']) ?>">
 
                             <div class="flex-grow-1">
-                                <p class="fw-semibold mb-1"><?= htmlspecialchars($item["nombre"]) ?></p>
-                                <p class="mb-0">Cantidad: <?= $item["cantidad"] ?></p>
+                                <p class="fw-semibold mb-1"><?= htmlspecialchars($item["name"]) ?></p>
+                                <p class="mb-0">Cantidad: <?= htmlspecialchars((string)$item["quantity"]) ?></p>
                             </div>
 
                             <div class="text-end">
                                 <p class="fw-bold text-success mb-0">
-                                    <?= number_format($item["precio"] * $item["cantidad"], 2) ?> €
+                                    <?= number_format($item["price"] * $item["quantity"], 2) ?> €
                                 </p>
                             </div>
                         </div>
@@ -134,7 +138,7 @@
                     <h3 class="fw-bold mb-3">Método de envío</h3>
 
                     <p class="mb-1"><strong>Envío gratis</strong></p>
-                    <p class="mb-1">Entrega estimada: <?= $inicio ?> - <?= $fin ?></p>
+                    <p class="mb-1">Entrega estimada: <?= $deliveryStart ?> - <?= $deliveryEnd ?></p>
                     <p class="mb-0">Empresa de transporte: <strong>Joserreos</strong></p>
                 </div>
 
@@ -151,15 +155,15 @@
                         <span class="text-success fw-bold">Gratis</span>
                     </div>
 
-                    <?php if ($datosIncompletos): ?>
-                        <a href="../usuarios/usuarioEditar.php?id=<?= $idUsuario ?>&from=finalizar" class="btn btn-jtech w-100 fw-semibold mb-2">Completar datos de envío</a>
+                    <?php if ($incompleteData): ?>
+                        <a href="/users/user_edit.php?id=<?= $userId ?>&from=checkout" class="btn btn-jtech w-100 fw-semibold mb-2">Completar datos de envío</a>
                     <?php else: ?>
-                        <form action="../stripe/crear_sesion.php" method="POST">
+                        <form action="/stripe/create_session.php" method="POST">
                             <button type="submit" class="btn btn-jtech w-100 fw-semibold mb-2">Completar el pago</button>
                         </form>
                     <?php endif; ?>
 
-                    <a href="../carrito/carrito.php" class="btn btn-outline-jtech w-100 fw-semibold">Volver al carrito</a>
+                    <a href="/cart/cart.php" class="btn btn-outline-jtech w-100 fw-semibold">Volver al carrito</a>
                 </div>
             </div>
         </div>

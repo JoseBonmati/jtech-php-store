@@ -1,82 +1,95 @@
 <?php
 
-    session_start();
-    require_once "../utilidades/conectar_db.php";
-    require_once "../stripe/init.php";
+    // Session Management
+    if (session_status() === PHP_SESSION_NONE) {
+        session_start();
+    }
 
-    $con = conectar();
+    // Database Connection and Stripe Initialization via absolute paths
+    require_once __DIR__ . "/../utils/Database.php";
+    require_once __DIR__ . "/../stripe/init.php"; 
 
-    // Comprobar login
+    $db = Database::getConnection();
+
+    // Check login status
     if (!isset($_SESSION["id"])) {
-        header("Location: ../index.php?acceso=denegado");
+        header("Location: /index.php?unauthorized_access=1");
         exit;
     }
 
-    $idUsuario = $_SESSION["id"];
+    $userId = $_SESSION["id"];
 
-    // Verificar sesión de Stripe
+    // Verify Stripe session existence
     if (!isset($_GET["session_id"])) {
-        header("Location: ../index.php?pagoError=1");
+        header("Location: /index.php?error=paymentError");
         exit;
     }
 
-    $session = \Stripe\Checkout\Session::retrieve($_GET["session_id"]);
+    // Retrieve Stripe Session and gracefully handle potential API exceptions
+    try {
+        $session = \Stripe\Checkout\Session::retrieve($_GET["session_id"]);
 
-    if ($session->payment_status !== "paid") {
-        header("Location: ../index.php?pagoError=2");
+        if ($session->payment_status !== "paid") {
+            header("Location: /index.php?error=paymentError");
+            exit;
+        }
+    } catch (\Exception $e) {
+        // Log the actual error internally if needed, but show standard error to the user
+        header("Location: /index.php?error=paymentError");
         exit;
     }
 
-    // Obtener datos del usuario
-    $sql = $con->prepare("SELECT nombre, telefono, direccion, localidad, provincia FROM usuarios WHERE id = :id");
-    $sql->execute([":id" => $idUsuario]);
-    $usuario = $sql->fetch(PDO::FETCH_ASSOC);
+    // Fetch User shipping data using aliases
+    $userStmt = $db->prepare("SELECT telefono AS phone, direccion AS address, localidad AS city, provincia AS province FROM usuarios WHERE id = :id");
+    $userStmt->execute([":id" => $userId]);
+    $user = $userStmt->fetch(PDO::FETCH_ASSOC);
 
-    // Obtener carrito
-    $sql = $con->prepare("SELECT c.id_producto, c.cantidad, p.precio FROM carrito c JOIN productos p ON c.id_producto = p.id WHERE c.id_usuario = :idUsuario");
-    $sql->execute([":idUsuario" => $idUsuario]);
-    $carrito = $sql->fetchAll(PDO::FETCH_ASSOC);
+    // Fetch Cart data freezing the current product price
+    $cartStmt = $db->prepare("SELECT c.id_producto AS product_id, c.cantidad AS quantity, p.precio AS price FROM carrito c 
+                              JOIN productos p ON c.id_producto = p.id WHERE c.id_usuario = :userId");
+    $cartStmt->execute([":userId" => $userId]);
+    $cartItems = $cartStmt->fetchAll(PDO::FETCH_ASSOC);
 
-    // Calcular total
-    $total = 0;
-    foreach ($carrito as $item) {
-        $total += $item["precio"] * $item["cantidad"];
+    // Calculate order total
+    $totalAmount = 0;
+    foreach ($cartItems as $item) {
+        $totalAmount += $item["price"] * $item["quantity"];
     }
 
-    // Crear pedido
-    $sql = $con->prepare("INSERT INTO pedidos (id_usuario, fecha, total, estado, tipo_pago, direccion_envio, localidad_envio, provincia_envio, telefono_envio)
-                          VALUES (:id_usuario, NOW(), :total, 'En curso', 'Stripe', :direccion, :localidad, :provincia, :telefono)");
+    // Insert Base Order Record
+    $insertOrderStmt = $db->prepare("INSERT INTO pedidos (id_usuario, fecha, total, estado, tipo_pago, direccion_envio, localidad_envio, provincia_envio, telefono_envio)
+                                     VALUES (:userId, NOW(), :total, 'En curso', 'Stripe', :address, :city, :province, :phone)");
 
-    $sql->execute([
-        ":id_usuario" => $idUsuario,
-        ":total" => $total,
-        ":direccion" => $usuario["direccion"],
-        ":localidad" => $usuario["localidad"],
-        ":provincia" => $usuario["provincia"],
-        ":telefono" => $usuario["telefono"]
+    $insertOrderStmt->execute([
+        ":userId" => $userId,
+        ":total" => $totalAmount,
+        ":address" => $user["address"],
+        ":city" => $user["city"],
+        ":province" => $user["province"],
+        ":phone" => $user["phone"]
     ]);
 
-    $idPedido = $con->lastInsertId();
+    $orderId = $db->lastInsertId();
 
-    // Insertar detalles
-    $sqlDetalles = $con->prepare("INSERT INTO detalles_pedidos (id_pedido, id_producto, cantidad, precio_unitario)
-                                  VALUES (:id_pedido, :id_producto, :cantidad, :precio_unitario)");
+    // Insert Order Details line by line (Historical record of prices and quantities)
+    $insertDetailsStmt = $db->prepare("INSERT INTO detalles_pedidos (id_pedido, id_producto, cantidad, precio_unitario)
+                                       VALUES (:order_id, :product_id, :quantity, :unit_price)");
 
-    foreach ($carrito as $item) {
-        $sqlDetalles->execute([
-            ":id_pedido" => $idPedido,
-            ":id_producto" => $item["id_producto"],
-            ":cantidad" => $item["cantidad"],
-            ":precio_unitario" => $item["precio"]
+    foreach ($cartItems as $item) {
+        $insertDetailsStmt->execute([
+            ":order_id" => $orderId,
+            ":product_id" => $item["product_id"],
+            ":quantity" => $item["quantity"],
+            ":unit_price" => $item["price"]
         ]);
     }
 
-    // Vaciar carrito
-    $sql = $con->prepare("DELETE FROM carrito WHERE id_usuario = :idUsuario");
-    $sql->execute([":idUsuario" => $idUsuario]);
+    // Empty user cart after successful order creation
+    $clearCartStmt = $db->prepare("DELETE FROM carrito WHERE id_usuario = :userId");
+    $clearCartStmt->execute([":userId" => $userId]);
 
-    // Redirigir a confirmación
-    header("Location: ../pedidos/pedidoConfirmado.php?id=" . $idPedido);
+    // Redirect to standardized order confirmation view
+    header("Location: /orders/order_confirmation.php?id=" . $orderId);
     exit;
 
 ?>

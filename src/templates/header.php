@@ -67,7 +67,7 @@
                         <a class="nav-link" href="#">Contacto</a>
                     </li>
                     <li class="nav-item me-lg-3">
-                        <a href="/cart/cart_list.php" class="nav-link">
+                        <a href="/cart/cart.php" class="nav-link">
                             <i class="bi bi-cart fs-3"></i> (<?= htmlspecialchars((string)$cartTotal) ?>)
                         </a>
                     </li>

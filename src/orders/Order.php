@@ -1,94 +1,105 @@
 <?php
 
-    // Clase entidad Pedido
-    class Pedido {
+    //Order Entity Class
+    class Order {
 
-        private $id;
-        private $id_usuario;
-        private $fecha;
-        private $total;
-        private $estado;
-        private $tipo_pago;
-        private $direccion_envio;
-        private $localidad_envio;
-        private $provincia_envio;
-        private $telefono_envio;
-        private $usuarioNombre;
+        private ?int $id = null;
+        private ?int $user_id = null;
+        private ?string $date = null;
+        private ?float $total = null;
+        private ?string $status = null;
+        private ?string $payment_method = null;
+        private ?string $shipping_address = null;
+        private ?string $shipping_city = null;
+        private ?string $shipping_province = null;
+        private ?string $shipping_phone = null;
+        private ?string $user_name = null;
 
-        public function getId() {
+        public function getId(): ?int {
             return $this->id;
         }
 
-        public function getIdUsuario() {
-            return $this->id_usuario;
+        public function getUserId(): ?int {
+            return $this->user_id;
         }
 
-        public function getFecha() {
-            return $this->fecha;
+        public function getDate(): ?string {
+            return $this->date;
         }
 
-        public function getTotal() {
+        public function getTotal(): ?float {
             return $this->total;
         }
 
-        public function getEstado() {
-            return $this->estado;
+        public function getStatus(): ?string {
+            return $this->status;
         }
 
-        public function getTipoPago() {
-            return $this->tipo_pago;
+        public function getPaymentMethod(): ?string {
+            return $this->payment_method;
         }
 
-        public function getDireccionEnvio() {
-            return $this->direccion_envio;
+        public function getShippingAddress(): ?string {
+            return $this->shipping_address;
         }
 
-        public function getLocalidadEnvio() {
-            return $this->localidad_envio;
+        public function getShippingCity(): ?string {
+            return $this->shipping_city;
         }
 
-        public function getProvinciaEnvio() {
-            return $this->provincia_envio;
+        public function getShippingProvince(): ?string {
+            return $this->shipping_province;
         }
 
-        public function getTelefonoEnvio() {
-            return $this->telefono_envio;
+        public function getShippingPhone(): ?string {
+            return $this->shipping_phone;
         }
 
-        public function getUsuarioNombre() {
-            return $this->usuarioNombre;
+        public function getUserName(): ?string {
+            return $this->user_name;
         }
-
     }
 
-    function obtenerPedidos($con, $pagina, $resultadosPP, $orden, $tipoOrden, $soloUsuario = null) {
+    //Fetches orders with pagination, sorting, and mapping to Order class
+    function getOrders(PDO $db, int $page, int $perPage, string $sortBy, string $sortDir, ?int $userIdOnly = null): array {
 
-        $inicio = ($pagina - 1) * $resultadosPP;
+        $offset = ($page - 1) * $perPage;
 
-        // Columnas permitidas para ordenar
-        $columnasPermitidas = ["p.id", "p.fecha", "p.total", "p.estado", "u.nombre"];
-        if (!in_array($orden, $columnasPermitidas)) $orden = "p.id";
-        $tipoOrden = strtoupper($tipoOrden) === "DESC" ? "DESC" : "ASC";
+        // White-list mapping parameter keys to avoid SQL Injection via ORDER BY
+        $allowedColumns = [
+            "id" => "p.id",
+            "date" => "p.fecha",
+            "total" => "p.total",
+            "status" => "p.estado",
+            "user_name" => "u.nombre"
+        ];
+        
+        // Fallback to safe defaults if parameters are invalid
+        $orderField = $allowedColumns[$sortBy] ?? "p.id";
+        $sortDir = strtoupper($sortDir) === "DESC" ? "DESC" : "ASC";
 
-        $filtroUsuario = "";
-        if ($soloUsuario !== null) {
-            $filtroUsuario = "WHERE p.id_usuario = :idUsuario";
+        $userFilter = "";
+        if ($userIdOnly !== null) {
+            $userFilter = "WHERE p.id_usuario = :userId";
         }
 
-        $sql = $con->prepare("SELECT p.id, p.id_usuario, p.fecha, p.total, p.estado, p.tipo_pago, p.direccion_envio, p.localidad_envio, p.provincia_envio, 
-                              p.telefono_envio, u.nombre AS usuarioNombre FROM pedidos p JOIN usuarios u ON p.id_usuario = u.id $filtroUsuario 
-                              ORDER BY $orden $tipoOrden LIMIT :inicio, :resultados");
+        // Clean SQL query with aliases to hydrate the Order class seamlessly
+        $sql = "SELECT p.id, p.id_usuario AS user_id, p.fecha AS date, p.total, p.estado AS status, p.tipo_pago AS payment_method, p.direccion_envio AS shipping_address, 
+                p.localidad_envio AS shipping_city, p.provincia_envio AS shipping_province, p.telefono_envio AS shipping_phone, u.nombre AS user_name FROM pedidos p 
+                JOIN usuarios u ON p.id_usuario = u.id $userFilter ORDER BY $orderField $sortDir LIMIT :offset, :limit";
 
-        if ($soloUsuario !== null) {
-            $sql->bindValue(":idUsuario", $soloUsuario, PDO::PARAM_INT);
+        $stmt = $db->prepare($sql);
+
+        if ($userIdOnly !== null) {
+            $stmt->bindValue(":userId", $userIdOnly, PDO::PARAM_INT);
         }
 
-        $sql->bindValue(":inicio", $inicio, PDO::PARAM_INT);
-        $sql->bindValue(":resultados", $resultadosPP, PDO::PARAM_INT);
-        $sql->execute();
+        $stmt->bindValue(":offset", $offset, PDO::PARAM_INT);
+        $stmt->bindValue(":limit", $perPage, PDO::PARAM_INT);
+        $stmt->execute();
 
-        $sql->setFetchMode(PDO::FETCH_CLASS, "Pedido");
-        return $sql->fetchAll();
+        $stmt->setFetchMode(PDO::FETCH_CLASS, "Order");
+        return $stmt->fetchAll();
     }
 
 ?>

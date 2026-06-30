@@ -1,50 +1,57 @@
 <?php
 
-    require_once "../utilidades/conectar_db.php";
-    session_start();
+    // Session Management
+    if (session_status() === PHP_SESSION_NONE) {
+        session_start();
+    }
 
-    $con = conectar();
+    // Database Connection
+    require_once __DIR__ . "/../utils/Database.php";
+    $db = Database::getConnection();
 
-    // Solo usuarios logueados
+    // Check login status
     if (!isset($_SESSION["id"])) {
-        header("Location: ../index.php?acceso=denegado");
+        header("Location: /index.php?unauthorized_access=1");
         exit;
     }
 
-    $idUsuario = $_SESSION["id"];
+    $userId = $_SESSION["id"];
 
+    // Validate request parameter
     if (!isset($_GET["id"])) {
-        header("Location: pedidoConsulta.php");
+        header("Location: /orders/order_list.php");
         exit;
     }
 
-    $idPedido = (int) $_GET["id"];
+    $orderId = (int) $_GET["id"];
 
-    // Obtener pedido y comprobar que pertenece al usuario
-    $sql = $con->prepare("SELECT estado FROM pedidos WHERE id = :id AND id_usuario = :idUsuario");
-    $sql->execute([
-        ":id" => $idPedido,
-        ":idUsuario" => $idUsuario
+    // Fetch order status and ownership validation
+    $orderStmt = $db->prepare("SELECT estado AS status FROM pedidos WHERE id = :id AND id_usuario = :userId");
+    $orderStmt->execute([
+        ":id" => $orderId,
+        ":userId" => $userId
     ]);
 
-    $pedido = $sql->fetch(PDO::FETCH_ASSOC);
+    $order = $orderStmt->fetch(PDO::FETCH_ASSOC);
 
-    if (!$pedido) {
-        header("Location: pedidoConsulta.php?error=noAutorizado");
+    // If order does not exist or does not belong to the user
+    if (!$order) {
+        header("Location: /orders/order_list.php?error=unauthorized");
         exit;
     }
 
-    // Solo se puede cancelar si está en curso
-    if ($pedido["estado"] !== "En curso") {
-        header("Location: pedidoConsulta.php?error=noCancelable");
+    // Business Logic: Order can only be canceled if status is 'En curso'
+    if ($order["status"] !== "En curso") {
+        header("Location: /orders/order_list.php?error=notCancelable");
         exit;
     }
 
-    // Cancelar pedido
-    $update = $con->prepare("UPDATE pedidos SET estado = 'Cancelado' WHERE id = :id");
-    $update->execute([":id" => $idPedido]);
+    // Execute cancellation
+    $updateStmt = $db->prepare("UPDATE pedidos SET estado = 'Cancelado' WHERE id = :id");
+    $updateStmt->execute([":id" => $orderId]);
 
-    header("Location: pedidoConsulta.php?pedidoCancelado=1");
+    // Redirect to list with success parameter
+    header("Location: /orders/order_list.php?order_canceled=1");
     exit;
 
 ?>

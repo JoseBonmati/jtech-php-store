@@ -1,37 +1,44 @@
 <?php
 
-    require_once "../utilidades/conectar_db.php";
-    session_start();
+    // Session Management
+    if (session_status() === PHP_SESSION_NONE) {
+        session_start();
+    }
 
-    $con = conectar();
+    // Database Connection
+    require_once __DIR__ . "/../utils/Database.php";
+    $db = Database::getConnection();
 
-    // Comprobar login
+    // Check login status
     if (!isset($_SESSION["id"])) {
-        header("Location: ../index.php?acceso=1");
+        header("Location: /index.php?unauthorized_access=1");
         exit;
     }
 
-    $idUsuario = $_SESSION["id"];
+    $userId = $_SESSION["id"];
 
-    // Comprobar que llega un ID de pedido
+    // Check if an order ID is provided in the URL
     if (!isset($_GET["id"])) {
-        header("Location: ../index.php");
+        header("Location: /index.php");
         exit;
     }
 
-    $idPedido = (int) $_GET["id"];
+    $orderId = (int) $_GET["id"];
 
-    // Obtener datos del pedido
-    $sql = $con->prepare("SELECT id, fecha, total, tipo_pago, direccion_envio, localidad_envio, provincia_envio, telefono_envio FROM pedidos WHERE id = :id AND id_usuario = :idUsuario");
-    $sql->execute([
-        ":id" => $idPedido,
-        ":idUsuario" => $idUsuario
+    // Fetch order details ensuring the order belongs to the logged-in user
+    $orderStmt = $db->prepare("SELECT id, fecha AS date, total, tipo_pago AS payment_method, direccion_envio AS shipping_address, localidad_envio AS shipping_city, 
+                               provincia_envio AS shipping_province, telefono_envio AS shipping_phone FROM pedidos WHERE id = :id AND id_usuario = :userId");
+    
+    $orderStmt->execute([
+        ":id" => $orderId,
+        ":userId" => $userId
     ]);
 
-    $pedido = $sql->fetch(PDO::FETCH_ASSOC);
+    $order = $orderStmt->fetch(PDO::FETCH_ASSOC);
 
-    if (!$pedido) {
-        header("Location: ../index.php?pedidoError=1");
+    // If order does not exist or does not belong to the user, redirect with error
+    if (!$order) {
+        header("Location: /index.php?error=orderNotFound");
         exit;
     }
 
@@ -45,8 +52,8 @@
     <title>Pedido confirmado</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
-    <link rel="stylesheet" href="../estilos.css">
-    <link rel="icon" type="image/x-icon" href="../assets/logos/jtech-favicon.ico"/>
+    <link rel="stylesheet" href="/assets/css/style.css">
+    <link rel="icon" type="image/x-icon" href="/assets/brand/jtech-favicon.ico"/>
 </head>
 <body>
     <div class="container py-5">
@@ -61,21 +68,21 @@
 
                     <h4 class="fw-bold mb-3">Detalles del pedido</h4>
 
-                    <p class="mb-1"><strong>Número de pedido:</strong> <?= $pedido["id"] ?></p>
-                    <p class="mb-1"><strong>Fecha:</strong> <?= date("d/m/Y H:i", strtotime($pedido["fecha"])) ?></p>
-                    <p class="mb-1"><strong>Total:</strong> <?= number_format($pedido["total"], 2) ?> €</p>
-                    <p class="mb-3"><strong>Método de pago:</strong> <?= htmlspecialchars($pedido["tipo_pago"]) ?></p>
+                    <p class="mb-1"><strong>Número de pedido:</strong> <?= htmlspecialchars((string)$order["id"]) ?></p>
+                    <p class="mb-1"><strong>Fecha:</strong> <?= date("d/m/Y H:i", strtotime($order["date"])) ?></p>
+                    <p class="mb-1"><strong>Total:</strong> <?= number_format($order["total"], 2) ?> €</p>
+                    <p class="mb-3"><strong>Método de pago:</strong> <?= htmlspecialchars($order["payment_method"]) ?></p>
 
                     <hr class="jtech-divider my-4">
 
                     <h4 class="fw-bold mb-3">Dirección de envío</h4>
 
-                    <p class="mb-1"><?= htmlspecialchars($pedido["direccion_envio"]) ?></p>
-                    <p class="mb-1"><?= htmlspecialchars($pedido["localidad_envio"]) ?>, <?= htmlspecialchars($pedido["provincia_envio"]) ?></p>
-                    <p class="mb-4">Teléfono: <?= htmlspecialchars($pedido["telefono_envio"]) ?></p>
+                    <p class="mb-1"><?= htmlspecialchars($order["shipping_address"]) ?></p>
+                    <p class="mb-1"><?= htmlspecialchars($order["shipping_city"]) ?>, <?= htmlspecialchars($order["shipping_province"]) ?></p>
+                    <p class="mb-4">Teléfono: <?= htmlspecialchars($order["shipping_phone"]) ?></p>
 
                     <div class="d-grid gap-3 mt-4">
-                        <a href="../index.php" class="btn btn-jtech fw-semibold">Volver a la tienda</a>
+                        <a href="/index.php" class="btn btn-jtech fw-semibold">Volver a la tienda</a>
                     </div>
                 </div>
             </div>
