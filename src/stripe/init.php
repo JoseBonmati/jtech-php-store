@@ -425,5 +425,31 @@ require __DIR__ . '/lib/Service/OAuthService.php';
 require __DIR__ . '/lib/Webhook.php';
 require __DIR__ . '/lib/WebhookSignature.php';
 
-// He eliminado la clave secreta por privacidad
-\Stripe\Stripe::setApiKey("");
+// Helper function to safely read environment variables from root .env file
+if (!function_class_exists('getEnvParam')) {
+    function getEnvParam(string $key, string $default = ''): string {
+        $envPath = __DIR__ . '/../../.env';
+        if (file_exists($envPath)) {
+            $lines = file($envPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+            foreach ($lines as $line) {
+                if (strpos(trim($line), '#') === 0) continue;
+                list($name, $value) = explode('=', $line, 2);
+                if (trim($name) === $key) {
+                    return trim($value);
+                }
+            }
+        }
+        return getenv($key) ?: $default;
+    }
+}
+
+// Fetch the secret key securely from the environment configuration
+$stripeSecretKey = getEnvParam('STRIPE_SECRET_KEY');
+
+if (empty($stripeSecretKey)) {
+    error_log("Stripe Secret Key is missing in the environment configuration.");
+}
+
+\Stripe\Stripe::setApiKey($stripeSecretKey);
+
+?>

@@ -1,21 +1,25 @@
 <?php
 
-    require_once "../utilidades/conectar_db.php";
-    require_once "Informe.php";
-    $con = conectar();
+    // Session Management
+    if (session_status() === PHP_SESSION_NONE) {
+        session_start();
+    }
 
-    session_start();
+    // Database Connection and Entity Inclusion
+    require_once __DIR__ . "/../utils/Database.php";
+    require_once __DIR__ . "/Report.php";
+    $db = Database::getConnection();
 
-    // Solo administradores pueden acceder
+    // Restrict access: only administrators can view reports
     if (!isset($_SESSION["id"]) || $_SESSION["rol"] !== "administrador") {
-        header("Location: ../index.php?acceso=denegado");
+        header("Location: /index.php?unauthorized_access=1");
         exit;
     }
 
-    // Obtener datos
-    $ventasTotales = obtenerVentasTotales($con);
-    $productosMasVendidos = obtenerProductosMasVendidos($con);
-    $ingresosMensuales = obtenerIngresosMensuales($con);
+    // Fetch reporting data utilizing the updated OOP methodology
+    $totalSales = getTotalSales($db);
+    $topSellingProducts = getTopSellingProducts($db);
+    $monthlyRevenue = getMonthlyRevenue($db);
 
 ?>
 
@@ -27,8 +31,8 @@
     <title>Informes - Jtech</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
-    <link rel="stylesheet" href="../estilos.css">
-    <link rel="icon" type="image/x-icon" href="../assets/logos/jtech-favicon.ico"/>
+    <link rel="stylesheet" href="/assets/css/style.css">
+    <link rel="icon" type="image/x-icon" href="/assets/brand/jtech-favicon.ico"/>
 </head>
 <body class="jtech-bg">
     <div class="container py-5">
@@ -41,7 +45,7 @@
                 <div class="p-4 text-center jtech-card">
                     <i class="bi bi-cash-coin fs-1 text-success"></i>
                     <h4 class="fw-bold mt-3">Ventas Totales</h4>
-                    <p class="fs-3 fw-semibold text-success"><?= number_format($ventasTotales, 2) ?> €</p>
+                    <p class="fs-3 fw-semibold text-success"><?= number_format($totalSales, 2) ?> €</p>
                 </div>
             </div>
 
@@ -49,7 +53,12 @@
                 <div class="p-4 text-center jtech-card">
                     <i class="bi bi-box-seam fs-1 text-primary"></i>
                     <h4 class="fw-bold mt-3">Productos Vendidos</h4>
-                    <p class="fs-3 fw-semibold text-primary"><?= array_sum(array_column($productosMasVendidos, "cantidadVendida")) ?></p>
+                    <p class="fs-3 fw-semibold text-primary">
+                        <?php 
+                            // Array mapping to sum up private object properties safely
+                            echo array_sum(array_map(fn($p) => $p->getQuantitySold(), $topSellingProducts)); 
+                        ?>
+                    </p>
                 </div>
             </div>
 
@@ -59,8 +68,8 @@
                     <h4 class="fw-bold mt-3">Ingresos Último Mes</h4>
                     <p class="fs-3 fw-semibold text-warning">
                         <?php
-                            $ultimoMes = end($ingresosMensuales);
-                            echo $ultimoMes ? number_format($ultimoMes["ingresos"], 2) . " €" : "0 €";
+                            $lastMonth = end($monthlyRevenue);
+                            echo $lastMonth ? number_format($lastMonth->getRevenue(), 2) . " €" : "0.00 €";
                         ?>
                     </p>
                 </div>
@@ -80,10 +89,10 @@
                     </tr>
                 </thead>
                 <tbody>
-                    <?php foreach ($productosMasVendidos as $p): ?>
+                    <?php foreach ($topSellingProducts as $p): ?>
                         <tr>
-                            <td><?= htmlspecialchars($p["producto"]) ?></td>
-                            <td><?= $p["cantidadVendida"] ?></td>
+                            <td><?= htmlspecialchars((string)$p->getProductName()) ?></td>
+                            <td><?= htmlspecialchars((string)$p->getQuantitySold()) ?></td>
                         </tr>
                     <?php endforeach; ?>
                 </tbody>
@@ -101,10 +110,10 @@
                     </tr>
                 </thead>
                 <tbody>
-                    <?php foreach ($ingresosMensuales as $m): ?>
+                    <?php foreach ($monthlyRevenue as $m): ?>
                         <tr>
-                            <td><?= $m["mes"] ?></td>
-                            <td><?= number_format($m["ingresos"], 2) ?></td>
+                            <td><?= htmlspecialchars((string)$m->getMonth()) ?></td>
+                            <td><?= number_format($m->getRevenue(), 2) ?></td>
                         </tr>
                     <?php endforeach; ?>
                 </tbody>
@@ -112,7 +121,7 @@
         </div>
 
         <div class="text-center">
-            <a href="../utilidades/panelAdministrador.php" class="btn btn-outline-jtech fw-semibold">Volver</a>
+            <a href="/utils/admin_panel.php" class="btn btn-outline-jtech fw-semibold">Volver</a>
         </div>
 
     </div>

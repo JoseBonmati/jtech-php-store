@@ -1,53 +1,60 @@
 <?php
 
-    session_start();
-    require_once "../utilidades/conectar_db.php";
-    require_once "init.php";
+    // Session Management
+    if (session_status() === PHP_SESSION_NONE) {
+        session_start();
+    }
 
-    $con = conectar();
+    require_once __DIR__ . "/../utils/Database.php";
+    require_once __DIR__ . "/init.php";
 
-    // Comprobar login
+    $db = Database::getConnection();
+
+    // Check login status
     if (!isset($_SESSION["id"])) {
-        header("Location: ../index.php?acceso=denegado");
+        header("Location: /index.php?unauthorized_access=1");
         exit;
     }
 
-    $idUsuario = $_SESSION["id"];
+    $userId = $_SESSION["id"];
 
-    // Obtener carrito
-    $sql = $con->prepare("SELECT c.cantidad, p.nombre, p.precio FROM carrito c JOIN productos p ON c.id_producto = p.id WHERE c.id_usuario = :idUsuario");
-    $sql->execute([":idUsuario" => $idUsuario]);
-    $carrito = $sql->fetchAll(PDO::FETCH_ASSOC);
+    // Fetch user cart with aliases
+    $cartStmt = $db->prepare("SELECT c.cantidad AS quantity, p.nombre AS name, p.precio AS price FROM carrito c JOIN productos p ON c.id_producto = p.id WHERE c.id_usuario = :userId");
+    $cartStmt->execute([":userId" => $userId]);
+    $cartItems = $cartStmt->fetchAll(PDO::FETCH_ASSOC);
 
-    if (empty($carrito)) {
-        header("Location: ../carrito/carrito.php?vacio=1");
+    if (empty($cartItems)) {
+        header("Location: /cart/cart.php?empty=1");
         exit;
     }
 
-    // Crear línea de productos para Stripe
-    $line_items = [];
+    // Prepare line items for Stripe
+    $lineItems = [];
 
-    foreach ($carrito as $item) {
-        $line_items[] = [
+    foreach ($cartItems as $item) {
+        $lineItems[] = [
             'price_data' => [
                 'currency' => 'eur',
                 'product_data' => [
-                    'name' => $item['nombre'],
+                    'name' => $item['name'],
                 ],
-                'unit_amount' => intval($item['precio'] * 100),
+                'unit_amount' => intval($item['price'] * 100),
             ],
-            'quantity' => $item['cantidad'],
+            'quantity' => $item['quantity'],
         ];
     }
 
-    // Crear sesión de pago
+    // Dynamic domain calculation for absolute callback URLs
+    $protocol = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? "https" : "http";
+    $domain = $protocol . "://" . $_SERVER['HTTP_HOST'];
+
+    // Create Stripe Checkout Session
     $session = \Stripe\Checkout\Session::create([
         'payment_method_types' => ['card'],
-        'line_items' => $line_items,
+        'line_items' => $lineItems,
         'mode' => 'payment',
-        'success_url' => 'https://jtech.kesug.com/compra/compraExitosa.php?session_id={CHECKOUT_SESSION_ID}',
-        'cancel_url' => 'https://jtech.kesug.com/compra/compraFinalizar.php',
-
+        'success_url' => $domain . '/checkout/checkout_success.php?session_id={CHECKOUT_SESSION_ID}',
+        'cancel_url' => $domain . '/checkout/checkout.php',
     ]);
 
     header("Location: " . $session->url);

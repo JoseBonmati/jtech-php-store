@@ -1,55 +1,58 @@
 <?php
 
-    // Clase Informe
-    class Informe {
+    //Report Entity Class
+    class Report {
 
-        private $mes;
-        private $ingresos;
-        private $producto;
-        private $cantidadVendida;
-        private $totalVentas;
+        private ?string $month = null;
+        private ?float $revenue = null;
+        private ?string $product_name = null;
+        private ?int $quantity_sold = null;
+        private ?float $total_sales = null;
 
-        public function getMes() { 
-            return $this->mes; 
+        public function getMonth(): ?string { 
+            return $this->month; 
         }
 
-        public function getIngresos() { 
-            return $this->ingresos; 
+        public function getRevenue(): ?float { 
+            return $this->revenue; 
         }
 
-        public function getProducto() { 
-            return $this->producto; 
+        public function getProductName(): ?string { 
+            return $this->product_name; 
         }
 
-        public function getCantidadVendida() { 
-            return $this->cantidadVendida; 
+        public function getQuantitySold(): ?int { 
+            return $this->quantity_sold; 
         }
 
-        public function getTotalVentas() { 
-            return $this->totalVentas; 
+        public function getTotalSales(): ?float { 
+            return $this->total_sales; 
         }
     }
 
-    function obtenerVentasTotales($con) {
-        $sql = $con->query("SELECT SUM(total) AS totalVentas FROM pedidos");
-        return $sql->fetchColumn() ?: 0;
+    //Gets the total lifetime sales amount across all orders.
+    function getTotalSales(PDO $db): float {
+        $sql = $db->query("SELECT SUM(total) AS total_sales FROM pedidos");
+        return (float) ($sql->fetchColumn() ?: 0);
     }
 
-    function obtenerProductosMasVendidos($con) {
-
-        $sql = $con->prepare("SELECT p.nombre AS producto, SUM(dp.cantidad) AS cantidadVendida FROM detalles_pedidos dp INNER JOIN productos p ON p.id = dp.id_producto
-                              GROUP BY dp.id_producto ORDER BY cantidadVendida DESC LIMIT 10");
+    //Gets the top 10 best-selling products based on quantity sold.
+    function getTopSellingProducts(PDO $db): array {
+        $sql = $db->prepare("SELECT p.nombre AS product_name, SUM(dp.cantidad) AS quantity_sold FROM detalles_pedidos dp INNER JOIN productos p ON p.id = dp.id_producto
+                             GROUP BY dp.id_producto ORDER BY quantity_sold DESC LIMIT 10");
 
         $sql->execute();
-        return $sql->fetchAll(PDO::FETCH_ASSOC);
+        $sql->setFetchMode(PDO::FETCH_CLASS, "Report");
+        return $sql->fetchAll();
     }
 
-    function obtenerIngresosMensuales($con) {
-
-        $sql = $con->prepare("SELECT DATE_FORMAT(fecha, '%Y-%m') AS mes, SUM(total) AS ingresos FROM pedidos GROUP BY mes ORDER BY mes ASC");
+    //Gets total revenue grouped by month (YYYY-MM).
+    function getMonthlyRevenue(PDO $db): array {
+        $sql = $db->prepare("SELECT DATE_FORMAT(fecha, '%Y-%m') AS month, SUM(total) AS revenue FROM pedidos GROUP BY month ORDER BY month ASC");
 
         $sql->execute();
-        return $sql->fetchAll(PDO::FETCH_ASSOC);
+        $sql->setFetchMode(PDO::FETCH_CLASS, "Report");
+        return $sql->fetchAll();
     }
 
 ?>
